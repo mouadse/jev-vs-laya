@@ -1,0 +1,15 @@
+.env*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+data/cache/
+data/cache*/
+.playwright-cli/
+.agents/
+.claude/
+.pi/
+results/*
+!results/.gitkeep
+
