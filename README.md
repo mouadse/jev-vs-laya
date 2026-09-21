@@ -1,9 +1,9 @@
-# Jev and Laya Moroccan Darija sentiment benchmark
+# Jev vs Laya: The At-Home Darija Showdown
 
-This project compares TypeSafe Jev with the open-weight Laya multilingual checkpoint
-on informal Moroccan Darija reviews classified as `positive`, `neutral`, or
-`negative`, with separate results for Arabic script and Arabizi. It is a zero-shot
-benchmark: no model is trained or fine-tuned.
+Can an open-weight model you control match a hosted AI service? This reproducible
+zero-shot benchmark pits TypeSafe Jev against self-hosted Laya on informal Moroccan
+Darija sentiment—across Arabic script and Arabizi, with `positive`, `neutral`, and
+`negative` labels. No model is trained or fine-tuned.
 
 ## Setup
 

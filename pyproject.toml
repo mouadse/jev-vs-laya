@@ -1,7 +1,7 @@
 [project]
 name = "jev-darija-eval"
 version = "0.1.0"
-description = "Reproducible Jev and Laya benchmark for Moroccan Darija sentiment"
+description = "Jev vs Laya: a reproducible at-home Moroccan Darija sentiment benchmark"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
