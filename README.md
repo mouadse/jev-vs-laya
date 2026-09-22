@@ -1,188 +1,90 @@
-# Jev vs Kev vs Laya — Darija Sentiment Benchmark
+# Darija Sentiment Benchmark
 
-Can a self-hosted open-weight model match a hosted AI service on informal
-Moroccan Darija? This reproducible, zero-shot benchmark pits TypeSafe **Jev**
-(hosted API) against self-hosted **Kev-9B** and **Laya** (both on Modal GPUs)
-on Arabic-script and Arabizi reviews. No model is trained or fine-tuned.
+### Jev vs Kev-9B vs Laya on Moroccan Arabic reviews
 
-## Results at a glance
+Can a self-hosted model match a hosted AI service on informal Moroccan Darija? I built an end-to-end, zero-shot benchmark using [Darija Reviews](https://huggingface.co/datasets/ohidaoui/darija-reviews) to answer that question with the **same reviews, labels, and three-class task** for every model. It evaluates positive, neutral, and negative sentiment in both Arabic script and **Arabizi** (Darija written in Latin characters and numerals), then turns the saved predictions into an interactive HTML report.
 
-171 paired reviews from the frozen eval split (Arabic N=127, Arabizi N=44).
-Same reviews, same labels, same schema for all three systems.
+**Python 3.11+ · TypeSafe Jev · Modal GPUs · traceable evaluation · statistical comparison**
 
-| Model | Accuracy (95% CI) | Macro F1 | Arabic | Arabizi |
-|---|---|---|---|---|
-| **Jev** `jev-1.13.0` | **79.5%** (72.9–84.9) | 71.7% | 84.3% | 65.9% |
-| **Kev-9B** `kev-9b` + Qwen3.5-9B | 71.9% (64.8–78.1) | 61.1% | 78.0% | 54.5% |
-| **Laya** `multilingual` | 53.8% (46.3–61.1) | 50.0% | 60.6% | 34.1% |
-| Always-positive reference | 53.8% | — | — | — |
+## Results
 
-```text
-Jev  ████████████████░░░░  79.5%
-Kev  ██████████████░░░░░░  71.9%
-Laya ███████████░░░░░░░░░  53.8%
-```
+The frozen holdout contains **171 reviews**: 127 Arabic-script and 44 Arabizi. All three models returned predictions for all 171 reviews in the saved comparison run of **22 September 2026**.
 
-Head-to-head gaps (paired bootstrap 95% CI, McNemar exact p):
+| Model | Accuracy (95% interval) | Macro F1 | Arabic | Arabizi |
+| :--- | ---: | ---: | ---: | ---: |
+| **Jev** · TypeSafe API, `jev-1.13.0` | **79.5%** (72.9–84.9) | **71.7%** | **84.3%** | **65.9%** |
+| **Kev-9B** · Qwen3.5-9B on Modal | 71.9% (64.8–78.1) | 61.1% | 78.0% | 54.5% |
+| **Laya** · multilingual checkpoint on Modal | 53.8% (46.3–61.1) | 50.0% | 60.6% | 34.1% |
+| Always predict positive · descriptive reference | 53.8% | — | — | — |
 
-| Pair | Gap | 95% CI | p |
-|---|---|---|---|
-| Kev − Jev | −7.6 pp | −12.9 to −2.3 | 0.019 |
-| Laya − Jev | −25.7 pp | −33.9 to −17.5 | 6.2e-08 |
-| Laya − Kev | −18.1 pp | −26.3 to −9.4 | 1.9e-04 |
+Jev led Kev by **7.6 percentage points** on these paired reviews (exploratory 95% paired bootstrap interval: **2.3–12.9 points**). Laya matched the always-positive reference on overall accuracy. Every model scored lower on the Arabizi subset, and neutral sentiment was the weakest class.
 
-**Takeaways:**
+These are agreement scores against the dataset's original annotations, **not** independently adjudicated labels or estimates of production performance. The style groups contain different reviews, so their score gap does not isolate the effect of script. Accuracy intervals use the Wilson method; the paired interval uses 5,000 sentiment/style-stratified bootstrap resamples. See the [evaluation protocol](docs/evaluation.md) for the full interpretation.
 
-- **Jev wins overall**, and the gap to Kev is supported but modest (−7.6 pp).
-- **Laya ties the always-positive baseline (53.8%)** — not viable for this task as configured.
-- **Arabizi is the hard part for everyone**: −18 pp (Jev), −23 pp (Kev), −27 pp (Laya) vs Arabic script.
-- **Neutral is the weak class**: F1 50.0 / 35.0 / 33.3 for Jev / Kev / Laya.
-- **Jev confidence is actionable**: ≥0.80 → 90.2% accuracy at 65.5% coverage;
-  ≥0.95 → 95.8% at 41.5% coverage. Kev tracks closely; Laya is poorly calibrated (ECE 0.23 vs 0.07).
+> **About the evidence:** The table comes from a saved local three-model comparison. Generated reports and prediction records live in `results/`, which is ignored by Git; they are created when you run the commands below. The numbers are shown here, but the underlying run artifacts are not downloadable from this repository.
 
-> Full interactive report with per-review error explorer:
-> [`results/compare_jev_kev_laya_20260922_105535_729323/report.html`](results/compare_jev_kev_laya_20260922_105535_729323/report.html)
-> (clone the repo and open it in a browser — GitHub does not render local HTML).
-> Machine-readable results: `comparison.json`, `paired_predictions.jsonl` in the same directory.
+## What I built
 
-## How it works
+| Part | What it does |
+| :--- | :--- |
+| [Dataset and frozen split](src/darija_eval/dataset.py) | Validates all 851 source reviews, documents the four known `negative ` label aliases, rejects unknown labels, and preserves a seed-42 split of 680 development and 171 evaluation reviews. |
+| [Three backend adapters](src/darija_eval/backends) | Send **only the review text** to Jev, Kev, or Laya through one versioned sentiment schema; reference labels and metadata stay out of inference requests. |
+| [Evaluation pipeline](src/darija_eval/evaluate.py) | Runs concurrent requests with retries, separates API failures from classification errors, records model identity, and resumes successful predictions from an experiment-aware cache. |
+| [Analysis and comparison](src/darija_eval/compare.py) | Checks that runs refer to the same examples and compatible schemas, then reports paired differences, class and writing-style results, uncertainty, and confidence calibration. |
+| [Standalone reports](src/darija_eval/report.py) | Generates readable HTML with charts, confusion matrices, and a searchable per-review error explorer alongside machine-readable JSON and JSONL. |
 
-- **Data**: `test` split of
-  [`ohidaoui/darija-reviews`](https://huggingface.co/datasets/ohidaoui/darija-reviews).
-  Source has no row ID, so source row indices are stable IDs. First load freezes a
-  deterministic seed-42 split under `data/splits/`: 80% dev, 20% eval, stratified
-  by sentiment and writing style when possible.
-- **Labels**: `positive` / `neutral` / `negative`. The four rows labeled
-  `negative ` (trailing space) are normalized to `negative`; any other unknown,
-  blank, or null label stops the run.
-- **Shared schema v2** for all backends; version/content changes invalidate cache
-  keys. Endpoints receive only the `review` string — never labels, style, or topic.
-- **Stats**: accuracy with 95% Wilson interval; paired sentiment/style-stratified
-  bootstrap intervals (5,000 resamples, seed 42) plus exact McNemar tests for
-  pairwise gaps. Exploratory, conditional on this dataset — no adjustment for
-  multiple comparisons, no label-uncertainty or shift modeling.
-- **Calibration**: ECE (10 equal-width bins), multiclass Brier (range 0–2),
-  log-loss, and thresholded selective-accuracy tables with accepted counts.
-- **Latency honesty**: recorded round-trip times mix infrastructure, queueing, and
-  cached rows — not a controlled speed test. GPU-only inference is reported
-  separately where available (Kev p50/p95 84/109 ms, Laya 57/140 ms).
+The [frozen split](data/splits/seed_42.json), model and schema fingerprints, and saved manifests make comparisons traceable. `reanalyse` can rebuild metrics and HTML from prediction records **without calling a model again**. No model is trained or fine-tuned in this project.
 
-See [evaluation reference and review protocol](docs/evaluation.md) for label
-handling and the rules for future experiments — including not tuning on the
-already-inspected eval results.
+## Run it
 
-## Reproduce
+Install [uv](https://docs.astral.sh/uv/) and use Python 3.11 or newer. Copy [.env.example](.env.example) to `.env`, then set `TYPESAFE_API_KEY` for Jev. `HF_TOKEN` authenticates Hugging Face downloads; the Modal backends also need their own deployed endpoint URLs. `.env` is ignored by Git.
 
 ```bash
 uv sync
 cp .env.example .env
-# Put the keys in .env, or export them in the shell:
-export TYPESAFE_API_KEY="..."
-export HF_TOKEN="..."  # authenticates dataset and model downloads
-export LAYA_ENDPOINT_URL="https://...modal.run"
-export KEV_ENDPOINT_URL="https://...modal.run"
+# Edit .env with your credentials and endpoint URLs.
+
+uv run darija-eval inspect                 # Validate data and show the frozen split
+uv run darija-eval demo --backend jev      # Ten development examples
+uv run darija-eval dev-eval --backend jev  # Development split
+uv run darija-eval eval --backend jev      # Frozen holdout
 ```
 
-The CLI loads `.env` (so `HF_TOKEN` authenticates Hugging Face downloads).
-`.env.example` points at the deployed endpoints but contains no credentials.
+Each model run prints its output directory and writes a standalone `report.html` there. Open that file in a browser to explore errors and metrics. Keep prompt and schema iteration on `demo` or `dev-eval`; the holdout has already been inspected and should be treated as historical evaluation evidence.
 
-### Deploy Laya on Modal
+To evaluate and compare all three models, deploy the two Modal services, set `LAYA_ENDPOINT_URL` and `KEV_ENDPOINT_URL` in `.env`, then run:
 
-One multilingual checkpoint serves both Arabic-script Darija and Arabizi, so the
-writing-style comparison stays meaningful. Weights and source revision are pinned;
-the service runs on one L4 with scale-to-zero.
+```bash
+uv run darija-eval eval --backend laya
+uv run darija-eval eval --backend kev
+uv run darija-eval compare path/to/jev_eval path/to/kev_eval path/to/laya_eval
+uv run darija-eval reanalyse path/to/jev_eval
+```
 
-Create a Modal secret named `hf-secret` containing `HF_TOKEN`, then:
+Replace the example paths with the actual directories printed by each run. `compare` accepts two or three full evaluation runs; it rejects mismatched examples and duplicate backend/model pairs. Saved KEV-4B and KEV-9B runs count as distinct model variants.
+
+<details>
+<summary><strong>Deploy the self-hosted backends on Modal</strong></summary>
+
+Create a Modal secret named `hf-secret` containing `HF_TOKEN`. Laya uses an L4 GPU; Kev-9B uses an L40S. Each service scales to zero when idle.
 
 ```bash
 uv run modal run -m darija_eval.modal_laya::download_model
 uv run modal deploy -m darija_eval.modal_laya --strategy recreate
-```
 
-Put the deployed `predict` URL in `LAYA_ENDPOINT_URL`. Redeploy Laya after any
-schema change.
-
-### Deploy Kev on Modal
-
-Kev runs as a separate Modal app (Python 3.12, newer Transformers than the Laya
-image). The deployment pins the `kev-9b` adapter, its Qwen3.5-9B base revision,
-and the KEV source revision, serving the checkpoint-carried temperature in FP32
-on one L40S with scale-to-zero. The 9B checkpoint exceeds L4 memory with the
-existing FP32 loader.
-
-```bash
 uv run modal run -m darija_eval.modal_kev::download_model
 uv run modal deploy -m darija_eval.modal_kev --strategy recreate
 ```
 
-Put the deployed `predict` URL in `KEV_ENDPOINT_URL`. Unlike Laya, Kev also
-returns a verifiable schema-content hash that the client requires. The endpoint
-URL and `--backend kev` stay unchanged across checkpoints; the model identity
-changes, so 4B cache entries are not reused for 9B (historical 4B results and
-weights remain intact).
+Set the deployed `predict` URLs in `.env`. The endpoint implementations are in [modal_laya.py](src/darija_eval/modal_laya.py) and [modal_kev.py](src/darija_eval/modal_kev.py).
 
-### Commands
+</details>
 
-```bash
-uv run darija-eval inspect
-uv run darija-eval inspect --json-output results/reference_audit.json
-uv run darija-eval demo --backend jev
-uv run darija-eval demo --backend laya
-uv run darija-eval demo --backend kev
-uv run darija-eval dev-eval --backend laya
-uv run darija-eval dev-eval --backend laya --limit 20
-uv run darija-eval eval --backend laya
-uv run darija-eval eval --backend kev
-uv run darija-eval compare results/jev_eval_<timestamp> results/laya_eval_<timestamp>
-uv run darija-eval compare results/jev_eval_<timestamp> results/laya_eval_<timestamp> results/kev_eval_<timestamp>
-uv run darija-eval reanalyse results/jev_eval_<timestamp>
-```
+## Scope and next steps
 
-Omit `--backend` to use Jev. `compare` accepts two or three eval-run directories
-from distinct backends or distinct resolved models of the same backend, in any
-order. A saved KEV-4B run and a new KEV-9B run display as separate model
-variants; identical backend/model pairs are rejected. Run the full frozen eval
-for each model first; demo/dev runs cannot be compared.
+- The holdout is small, especially **Arabizi (44)** and **neutral (25)**. Subgroup estimates are uncertain.
+- Source annotations have not been independently reviewed. A [dataset survey](docs/dataset_survey.md) identifies a larger candidate for a future, separately versioned study.
+- `jev-latest` is a mutable service alias. The saved run resolved to `jev-1.13.0`; future runs may resolve differently.
+- Cached client timings include the original network and service time, so they are **not** a controlled inference-speed comparison.
 
-To compare saved 4B predictions with a new 9B evaluation:
-
-```bash
-uv run darija-eval eval --backend kev
-uv run darija-eval compare \
-  results/kev_eval_20260922_101711_853681 \
-  results/kev_eval_<new_9b_timestamp>
-```
-
-`reanalyse` rebuilds metrics and HTML from saved evidence without contacting any
-model; original files stay intact.
-
-### Caching, provenance, artifacts
-
-- `--concurrency` (default 5) and `--max-retries` (default 3) tune remote calls.
-  Successful calls are cached under `data/cache/`; keys include backend, model,
-  exact review text, schema version, and question-content hash, so interrupted
-  runs resume. Malformed cache entries are treated as misses; invalid fresh
-  predictions are recorded as API failures, never cached or scored.
-- `jev-latest` is a mutable service alias — inspect resolved model IDs when
-  comparing runs across dates.
-- Each run writes a timestamped directory under `results/` with
-  `predictions.jsonl`, `failures.jsonl`, `api_failures.jsonl`, `metrics.json`,
-  `manifest.json`, `summary.md`, and standalone `report.html`. Comparisons add
-  `comparison.json` and `paired_predictions.jsonl`.
-- Reanalysis and comparison verify ID, review/reference, schema, and
-  dataset/split fingerprints where provenance is present; legacy runs without
-  metadata remain readable but unverifiable.
-
-**Keep the frozen 20% eval split untouched during prompt and schema development.**
-Use `demo` and `dev-eval` while iterating. All three backends share the same
-dataset, schema, evaluation, metrics, cache, and artifact pipeline.
-
-## Limitations
-
-- N=171 (Arabizi N=44): subgroup intervals are wide; style groups mix different
-  reviews and topics, so gaps do not isolate transliteration effects.
-- Reference labels are dataset annotations, not independently adjudicated.
-- These saved predictions have been inspected — further prompt development
-  belongs on dev, with a new independent test set for confirmatory claims.
-- No temperature, threshold, transliteration, or ensemble fitting; prompt changes
-  alone do not establish a gain.
+The [evaluation protocol](docs/evaluation.md) records the remaining provenance and annotation limits and outlines how to collect a new independent confirmation set.
