@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import math
-import hashlib
-import json
 import time
 from typing import Any, Callable
+from collections.abc import Sequence
 
 from typesafe_sdk import (
     Choice,
@@ -24,14 +23,10 @@ from typesafe_sdk import (
 )
 
 from .base import PermanentBackendError, Prediction, TransientBackendError
-from ..schema import SCHEMA_VERSION, SENTIMENT_CRITERIA, SENTIMENT_INSTRUCTIONS, sentiment_question_dict
+from ..schema import SCHEMA_VERSION, SENTIMENT_CRITERIA, question_fingerprint, sentiment_question_dict
 
 REQUESTED_MODEL = "jev-latest"
-SENTIMENT_QUESTION = Choice(
-    instructions=SENTIMENT_INSTRUCTIONS,
-    criteria=SENTIMENT_CRITERIA,
-)
-EXPECTED_LABELS = set(SENTIMENT_QUESTION.criteria)
+EXPECTED_LABELS = set(SENTIMENT_CRITERIA)
 
 _TRANSIENT = (
     TypeSafeRateLimitError,
@@ -56,7 +51,11 @@ class JevBackend:
 
     @property
     def schema_fingerprint(self) -> str:
-        return hashlib.sha256(json.dumps(sentiment_question_dict(), sort_keys=True).encode()).hexdigest()
+        return question_fingerprint(self._question.model_dump(mode="json"))
+
+    @property
+    def option_order(self) -> tuple[str, ...]:
+        return tuple(self._question.criteria)
 
     def __init__(
         self,
@@ -66,12 +65,14 @@ class JevBackend:
         max_retries: int = 3,
         timeout: float = 30.0,
         client_factory: Callable[..., Any] = TypeSafeClient,
+        option_order: Sequence[str] | None = None,
     ) -> None:
         key = api_key or os.getenv("TYPESAFE_API_KEY")
         if not key:
             raise PermanentBackendError("TYPESAFE_API_KEY is not set")
         self.model_identifier = model
         self.max_retries = max_retries
+        self._question = Choice(**sentiment_question_dict(option_order))
         self._client = client_factory(
             api_key=key,
             model=model,
@@ -84,7 +85,7 @@ class JevBackend:
         try:
             response = self._client.system_one(
                 state={"review": text},
-                questions={"sentiment": SENTIMENT_QUESTION},
+                questions={"sentiment": self._question},
             )
         except _TRANSIENT as error:
             raise TransientBackendError(_safe_error(error)) from error

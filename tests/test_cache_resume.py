@@ -4,6 +4,7 @@ from darija_eval.backends.base import Prediction
 from darija_eval.cache import PredictionCache
 from darija_eval.dataset import Example
 from darija_eval.evaluate import evaluate_examples
+from darija_eval.schema import configuration_fingerprint
 
 
 class CountingBackend:
@@ -87,6 +88,15 @@ def _cache_key_for(backend, text: str) -> str:
         backend.schema_version,
         text,
         getattr(backend, "schema_fingerprint", None),
+        configuration_fingerprint({
+            "identity_version": 2,
+            "backend": backend.name,
+            "requested_model": backend.model_identifier,
+            "schema_version": backend.schema_version,
+            "schema_fingerprint": getattr(backend, "schema_fingerprint", None),
+            "option_order": getattr(backend, "option_order", None),
+            "experiment": {},
+        }),
     )
 
 

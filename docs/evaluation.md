@@ -24,6 +24,42 @@ their independent adjudication has not been established by this project.
   dataset or split fingerprints. These checks detect inconsistency, not independently
   authenticated provenance; legacy runs may lack the metadata needed for them.
 
+### Cache and experiment identity
+
+New runs use cache identity version 2. The shared schema fingerprint encodes criteria
+as an ordered list of label/description pairs before hashing. Option permutations
+therefore have different identities; ordinary JSON object-key order is canonicalized.
+Jev fingerprints the same question object it sends. Probabilities remain keyed by
+semantic labels, never remapped by position.
+
+For Python-driven experiments, construct `JevBackend(option_order=("negative",
+"neutral", "positive"))` and pass `experiment_config={...}` to `evaluate_examples`.
+This JSON configuration is an identity declaration, not an implementation of the
+declared transformations. Record every behavior-affecting external component:
+`checkpoint_revision`, `preprocessing`, ordered `examples`, `retrieval_corpus`,
+`calibration`, and `decision_policy`, using immutable revisions or content hashes.
+Do not include credentials. Backend name, requested model, schema version, ordered
+schema hash, and option order are included automatically. Changing configuration
+object-key order does not invalidate the cache; changing sequence order does.
+
+The configuration and its `experiment_fingerprint` are saved in manifest/metrics
+provenance; successful and failed records carry the fingerprint. Offline reanalysis
+checks those identities. The cache stores complete predictions, so calibration and
+decision-policy changes conservatively invalidate inference too; raw and derived
+caches are not yet separate. Retry count, concurrency, and reporting settings do not
+affect prediction identity.
+
+Historical cache files and result records are not rewritten or deleted. New runs
+do not reuse pre-version-2 cache entries. Historical runs still support offline
+reanalysis and comparisons with matching historical schema hashes; old and new
+schema hashes are deliberately not treated as interchangeable.
+
+Laya still uses its fixed server-side schema and cannot select client-side option
+permutations. Its ordered client hash describes the expected schema, not proof of
+the loaded remote schema. Versioned endpoint configuration verification remains
+separate work. Likewise, `jev-latest` is mutable: use a pinned model identifier for
+reproducible experiments; a local hash cannot discover an unseen remote update.
+
 ## Review reference labels independently
 
 For a future annotation-quality study, have two fluent Darija reviewers independently

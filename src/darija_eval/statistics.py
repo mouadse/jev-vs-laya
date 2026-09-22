@@ -9,7 +9,13 @@ import numpy as np
 from .metrics import LABELS
 
 
-def paired_statistics(pairs: list[tuple[dict, dict]], *, seed: int = 42, resamples: int = 5000) -> dict:
+def paired_statistics(
+    pairs: list[tuple[dict, dict]],
+    *,
+    seed: int = 42,
+    resamples: int = 5000,
+    names: tuple[str, str] = ("jev", "laya"),
+) -> dict:
     if not pairs:
         raise ValueError("paired statistics require at least one example")
     groups = defaultdict(list)
@@ -33,15 +39,16 @@ def paired_statistics(pairs: list[tuple[dict, dict]], *, seed: int = 42, resampl
             class_f1.append(np.divide(numerator, denominator, out=np.zeros(resamples), where=denominator > 0))
         f1.append(np.mean(class_f1, axis=0))
     correct = [pred == gold for pred in predictions]
-    jev_only = int((correct[0] & ~correct[1]).sum())
-    laya_only = int((~correct[0] & correct[1]).sum())
-    discordant = jev_only + laya_only
-    pvalue = min(1.0, 2 * sum(math.comb(discordant, k) for k in range(min(jev_only, laya_only) + 1)) / 2**discordant) if discordant else 1.0
+    first_only = int((correct[0] & ~correct[1]).sum())
+    second_only = int((~correct[0] & correct[1]).sum())
+    discordant = first_only + second_only
+    pvalue = min(1.0, 2 * sum(math.comb(discordant, k) for k in range(min(first_only, second_only) + 1)) / 2**discordant) if discordant else 1.0
+    first, second = names
     return {
-        "direction": "Laya minus Jev",
+        "direction": f"{second.title()} minus {first.title()}",
         "accuracy_delta_ci95": np.quantile(accuracy[1] - accuracy[0], [0.025, 0.975]).tolist(),
         "macro_f1_delta_ci95": np.quantile(f1[1] - f1[0], [0.025, 0.975]).tolist(),
         "bootstrap": {"method": "paired percentile, stratified by gold sentiment and writing style", "seed": seed, "resamples": resamples},
-        "mcnemar_exact": {"p_value": pvalue, "jev_only_correct": jev_only, "laya_only_correct": laya_only, "discordant_n": discordant},
+        "mcnemar_exact": {"p_value": pvalue, f"{first}_only_correct": first_only, f"{second}_only_correct": second_only, "discordant_n": discordant},
         "limitations": "Exploratory intervals assume independent reviews within strata. They do not include label uncertainty, model stochasticity, or dataset shift. Subgroup comparisons are descriptive, not causal.",
     }

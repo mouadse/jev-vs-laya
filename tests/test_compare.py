@@ -245,6 +245,48 @@ def test_comparison_rejects_different_dataset_provenance(tmp_path):
         compare_runs(jev, laya, tmp_path / "results", split_path=None)
 
 
+def test_comparison_supports_kev_pair_with_generic_keys(tmp_path):
+    kev, laya = tmp_path / "kev", tmp_path / "laya"
+    _write_run(kev, "kev", [_row(1, "positive", "kev"), _row(2, "negative", "kev")])
+    _write_run(laya, "laya", [_row(1, "negative", "laya"), _row(2, "positive", "laya")])
+    output = compare_runs(kev, laya, tmp_path / "results", split_path=None)
+    comparison = json.loads((output / "comparison.json").read_text())
+    assert comparison["backends"] == ["kev", "laya"]
+    assert comparison["outcomes"]["kev_only"] == 1
+    assert comparison["outcomes"]["laya_only"] == 1
+    assert set(comparison["models"]) == {"kev", "laya"}
+    assert comparison["delta_laya_minus_kev"]["accuracy"] == 0
+    assert comparison["paired_statistics"]["direction"] == "Laya minus Kev"
+    assert set(comparison["server_inference_ms"]) == {"kev", "laya"}
+    assert "laya_server_inference_ms" not in comparison
+    assert output.name.startswith("compare_kev_laya_")
+    paired = (output / "paired_predictions.jsonl").read_text()
+    assert '"kev":' in paired and '"laya":' in paired
+    report = (output / "report.html").read_text()
+    assert "Kev <i>versus</i> Laya" in report
+    assert 'data-filter="kev"' in report
+
+
+def test_comparison_jev_laya_pair_keeps_legacy_keys(tmp_path):
+    jev, laya = tmp_path / "jev", tmp_path / "laya"
+    _write_run(jev, "jev", [_row(1, "positive", "jev")])
+    _write_run(laya, "laya", [_row(1, "positive", "laya")])
+    output = compare_runs(jev, laya, tmp_path / "results", split_path=None)
+    comparison = json.loads((output / "comparison.json").read_text())
+    assert comparison["backends"] == ["jev", "laya"]
+    assert comparison["laya_server_inference_ms"] == comparison["server_inference_ms"]["laya"]
+    assert comparison["paired_statistics"]["direction"] == "Laya minus Jev"
+    assert "Jev <i>versus</i> Laya" in (output / "report.html").read_text()
+
+
+def test_comparison_rejects_same_backend(tmp_path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    _write_run(first, "kev", [_row(1, "positive", "kev")])
+    _write_run(second, "kev", [_row(1, "positive", "kev")])
+    with pytest.raises(ValueError, match="different backends"):
+        compare_runs(first, second, tmp_path / "results", split_path=None)
+
+
 def test_comparison_rejects_wrong_frozen_dataset_with_matching_ids(tmp_path):
     jev, laya = tmp_path / "jev", tmp_path / "laya"
     for name, path in (("jev", jev), ("laya", laya)):
@@ -257,3 +299,80 @@ def test_comparison_rejects_wrong_frozen_dataset_with_matching_ids(tmp_path):
     split.write_text(json.dumps({"eval": [1], "dataset_fingerprint": "different-dataset"}))
     with pytest.raises(ValueError, match="dataset_fingerprint disagrees"):
         compare_runs(jev, laya, tmp_path / "results", split_path=split)
+
+
+def test_three_backend_comparison_aligns_rows_and_computes_every_pair(tmp_path):
+    paths = {name: tmp_path / name for name in ("jev", "laya", "kev")}
+    guesses = {
+        "jev": ["positive", "negative", "positive"],
+        "laya": ["negative", "positive", "positive"],
+        "kev": ["positive", "positive", "positive"],
+    }
+    for name, path in paths.items():
+        rows = [_row(i, guess, name) for i, guess in enumerate(guesses[name], 1)]
+        _write_run(path, name, list(reversed(rows)) if name == "kev" else rows)
+    output = compare_runs(paths["laya"], paths["jev"], tmp_path / "results",
+                          third_run=paths["kev"], split_path=None)
+    data = json.loads((output / "comparison.json").read_text())
+    assert set(data["pairwise"]) == {"jev_vs_kev", "jev_vs_laya", "kev_vs_laya"}
+    for pair in data["pairwise"].values():
+        first, second = pair["backends"]
+        if "kev" in (first, second):
+            assert pair["outcomes"]["both_correct"] == 2
+            assert pair["outcomes"]["kev_only"] == 1
+            other = first if second == "kev" else second
+            assert pair["outcomes"][f"{other}_only"] == 0
+            expected_delta = 1 / 3 if second == "kev" else -1 / 3
+        else:
+            assert pair["outcomes"] == {
+                "both_correct": 1, f"{first}_only": 1, f"{second}_only": 1, "both_wrong": 0,
+            }
+            expected_delta = 0
+        assert pair[f"delta_{second}_minus_{first}"]["accuracy"] == pytest.approx(expected_delta)
+    rows = [json.loads(line) for line in (output / "paired_predictions.jsonl").read_text().splitlines()]
+    assert [row["id"] for row in rows] == [1, 2, 3]
+    assert rows[2]["kev"]["predicted"] == "positive"
+    assert data["models"]["kev"]["accuracy"] == 1
+    assert data["models"]["jev"]["accuracy"] == pytest.approx(2 / 3)
+
+
+@pytest.mark.parametrize("mismatch", ["id", "text", "schema_fingerprint", "dataset_fingerprint"])
+def test_three_backend_comparison_rejects_third_run_mismatch(tmp_path, mismatch):
+    paths = {name: tmp_path / name for name in ("jev", "kev", "laya")}
+    for name, path in paths.items():
+        rows = [_row(1, "positive", name)]
+        if name == "laya":
+            if mismatch == "id":
+                rows[0]["id"] = 2
+            elif mismatch != "dataset_fingerprint":
+                rows[0][mismatch] = "changed"
+        _write_run(path, name, rows)
+        if mismatch == "dataset_fingerprint" and name != "jev":
+            metrics = json.loads((path / "metrics.json").read_text())
+            metrics["provenance"] = {"dataset_fingerprint": name}
+            (path / "metrics.json").write_text(json.dumps(metrics))
+    with pytest.raises(ValueError, match="same successful IDs|mismatch"):
+        compare_runs(paths["jev"], paths["kev"], tmp_path / "results",
+                     third_run=paths["laya"], split_path=None)
+
+
+def test_compare_cli_accepts_three_runs_and_reports_invalid_evidence(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+    from darija_eval.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    split = tmp_path / "data" / "splits" / "seed_42.json"
+    split.parent.mkdir(parents=True)
+    split.write_text(json.dumps({"eval": [1], "dataset_fingerprint": "fixture"}))
+    for name in ("jev", "laya", "kev"):
+        _write_run(tmp_path / name, name, [_row(1, "positive", name)])
+    runner = CliRunner()
+    result = runner.invoke(app, ["compare", "jev", "laya", "kev"])
+    assert result.exit_code == 0, result.output
+    output = next((tmp_path / "results").iterdir())
+    data = json.loads((output / "comparison.json").read_text())
+    assert data["scope"]["status"] == "full"
+    assert set(data["pairwise"]) == {"jev_vs_kev", "jev_vs_laya", "kev_vs_laya"}
+    result = runner.invoke(app, ["compare", "jev", "laya", "jev"])
+    assert result.exit_code == 2
+    assert "different backends" in result.output

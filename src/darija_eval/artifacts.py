@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .dataset import Example, dataset_fingerprint
 from .metrics import LABELS, compute_metrics, error_analysis
+from .schema import configuration_fingerprint
 
 
 def load_run(path: Path) -> dict:
@@ -72,6 +73,19 @@ def _validate_provenance(path: Path, source: dict, predictions: list[dict], fail
                 raise ValueError(f"manifest {field} disagrees with run metadata")
     provenance = source.get("provenance") or {}
     rows = predictions + failures
+    experiment_fingerprint = provenance.get("experiment_fingerprint")
+    if experiment_fingerprint is not None:
+        configuration = provenance.get("experiment_config")
+        if not isinstance(configuration, dict) or configuration_fingerprint(configuration) != experiment_fingerprint:
+            raise ValueError("experiment fingerprint disagrees with configuration")
+        for field in ("backend", "requested_model", "schema_version"):
+            if configuration.get(field) != source.get(field):
+                raise ValueError(f"experiment configuration disagrees with run {field}")
+        if configuration.get("schema_fingerprint") != provenance.get("schema_fingerprint"):
+            raise ValueError("experiment configuration disagrees with schema fingerprint")
+        for row in rows:
+            if row.get("experiment_fingerprint") != experiment_fingerprint:
+                raise ValueError(f"row experiment fingerprint disagrees with provenance for ID {row.get('id')}")
     for row in rows:
         if type(row.get("id")) is not int or row["id"] < 0:
             raise ValueError("example IDs must be nonnegative integers")

@@ -11,14 +11,20 @@ from urllib.request import Request, urlopen
 from ..schema import SCHEMA_VERSION, SENTIMENT_CRITERIA, question_fingerprint, sentiment_question_dict
 from .base import PermanentBackendError, Prediction, TransientBackendError
 
+ADAPTER_REPO = "jaredpalmer/kev-4b"
+ADAPTER_REVISION = "485ace8703592fcf405488b262449990824cfed1"
+BASE_REPO = "Qwen/Qwen3.5-4B-Base"
+BASE_REVISION = "1001bb4d826a52d1f399e183466143f4da7b741b"
+KEV_CODE_REVISION = "90990a5fac2995b9faa3190f7d437e84f2067768"
 MODEL_IDENTIFIER = (
-    "convaiinnovations/laya:multilingual@"
-    "1c5edc17a7acd8701df6fc341c0d179f1c62c982+laya-0.3.4"
+    f"{ADAPTER_REPO}@{ADAPTER_REVISION}"
+    f"+{BASE_REPO}@{BASE_REVISION}"
+    f"+kev@{KEV_CODE_REVISION}"
 )
 
 
-class LayaBackend:
-    name = "laya"
+class KevBackend:
+    name = "kev"
     model_identifier = MODEL_IDENTIFIER
     schema_version = SCHEMA_VERSION
 
@@ -38,9 +44,9 @@ class LayaBackend:
         timeout: float = 60.0,
         opener: Callable[..., Any] = urlopen,
     ) -> None:
-        self.endpoint_url = (endpoint_url or os.getenv("LAYA_ENDPOINT_URL", "")).strip()
+        self.endpoint_url = (endpoint_url or os.getenv("KEV_ENDPOINT_URL", "")).strip()
         if not self.endpoint_url:
-            raise PermanentBackendError("LAYA_ENDPOINT_URL is not set")
+            raise PermanentBackendError("KEV_ENDPOINT_URL is not set")
         self.max_retries = max_retries
         self.timeout = timeout
         self._opener = opener
@@ -60,11 +66,11 @@ class LayaBackend:
                     payload = json.loads(response.read().decode("utf-8"))
                 latency_ms = (time.perf_counter() - started) * 1000
                 if not isinstance(payload, dict):
-                    raise PermanentBackendError("invalid Laya response: expected an object")
+                    raise PermanentBackendError("invalid Kev response: expected an object")
                 if payload.get("model") != self.model_identifier or payload.get("schema_version") != self.schema_version:
-                    raise PermanentBackendError("Laya endpoint model/schema does not match the requested configuration")
-                if payload.get("schema_fingerprint", self.schema_fingerprint) != self.schema_fingerprint:
-                    raise PermanentBackendError("Laya endpoint schema content does not match the requested configuration")
+                    raise PermanentBackendError("Kev endpoint model/schema does not match the requested configuration")
+                if payload.get("schema_fingerprint") != self.schema_fingerprint:
+                    raise PermanentBackendError("Kev endpoint schema content does not match the requested configuration")
                 return parse_response(payload, latency_ms)
             except HTTPError as error:
                 message = _http_error(error)
@@ -76,7 +82,7 @@ class LayaBackend:
                 if attempt == self.max_retries:
                     raise TransientBackendError(f"{type(error).__name__}: {error}") from error
             except (json.JSONDecodeError, UnicodeDecodeError) as error:
-                raise PermanentBackendError(f"invalid Laya response: {error}") from error
+                raise PermanentBackendError(f"invalid Kev response: {error}") from error
             time.sleep(min(0.5 * (2**attempt), 5.0))
         raise AssertionError("retry loop exhausted")
 
@@ -92,18 +98,18 @@ def parse_response(payload: Any, latency_ms: float) -> Prediction:
         }
         model = str(payload["model"])
     except (KeyError, TypeError, ValueError, AttributeError) as error:
-        raise PermanentBackendError(f"invalid Laya response: {error}") from error
+        raise PermanentBackendError(f"invalid Kev response: {error}") from error
     expected = set(SENTIMENT_CRITERIA)
     if label not in expected:
-        raise PermanentBackendError(f"Laya returned unknown label {label!r}")
+        raise PermanentBackendError(f"Kev returned unknown label {label!r}")
     if set(probabilities) != expected:
         raise PermanentBackendError(
-            f"Laya probabilities have unexpected labels: {sorted(probabilities)}"
+            f"Kev probabilities have unexpected labels: {sorted(probabilities)}"
         )
     if any(not math.isfinite(value) or not 0 <= value <= 1 for value in probabilities.values()):
-        raise PermanentBackendError("Laya returned invalid probability values")
+        raise PermanentBackendError("Kev returned invalid probability values")
     if not math.isclose(sum(probabilities.values()), 1.0, abs_tol=1e-3):
-        raise PermanentBackendError("Laya probabilities do not sum to one")
+        raise PermanentBackendError("Kev probabilities do not sum to one")
     return Prediction(label, probabilities, latency_ms, model, dict(payload))
 
 
@@ -112,4 +118,4 @@ def _http_error(error: HTTPError) -> str:
         detail = error.read().decode("utf-8")[:500]
     except Exception:
         detail = ""
-    return f"Laya endpoint HTTP {error.code}: {detail or error.reason}"
+    return f"Kev endpoint HTTP {error.code}: {detail or error.reason}"

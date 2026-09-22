@@ -14,6 +14,7 @@ cp .env.example .env
 export TYPESAFE_API_KEY="..."
 export HF_TOKEN="..."  # authenticates dataset and Laya model downloads
 export LAYA_ENDPOINT_URL="https://...modal.run"
+export KEV_ENDPOINT_URL="https://...modal.run"
 ```
 
 The CLI loads these variables from `.env`. The checked-in `.env.example` points to
@@ -55,6 +56,22 @@ Old v1 runs remain readable, but cannot be paired with v2 runs by `compare`.
 No temperature, decision thresholds, transliteration or option-order ensemble has
 been fitted or enabled; prompt changes alone do not establish an accuracy gain.
 
+## Deploy Kev on Modal
+
+Kev runs as a separate Modal app because it needs Python 3.12 and a newer
+Transformers range than the Laya image. The deployment pins the `kev-4b`
+adapter, its Qwen3.5-4B base revision, and the KEV source revision, and serves
+the checkpoint-carried temperature on one L4 with scale-to-zero behavior.
+
+```bash
+uv run modal run -m darija_eval.modal_kev::download_model
+uv run modal deploy -m darija_eval.modal_kev --strategy recreate
+```
+
+Put the deployed `predict` URL in `KEV_ENDPOINT_URL`. Like Laya, the endpoint
+accepts only a `review` string and returns the label distribution, except it
+also returns a verifiable schema-content hash that the client requires.
+
 ## Commands
 
 ```bash
@@ -62,18 +79,26 @@ uv run darija-eval inspect
 uv run darija-eval inspect --json-output results/reference_audit.json
 uv run darija-eval demo --backend jev
 uv run darija-eval demo --backend laya
+uv run darija-eval demo --backend kev
 uv run darija-eval dev-eval --backend laya
 uv run darija-eval dev-eval --backend laya --limit 20
 uv run darija-eval eval --backend laya
+uv run darija-eval eval --backend kev
 uv run darija-eval compare results/jev_eval_<timestamp> results/laya_eval_<timestamp>
+uv run darija-eval compare results/jev_eval_<timestamp> results/laya_eval_<timestamp> results/kev_eval_<timestamp>
 uv run darija-eval reanalyse results/jev_eval_<timestamp>
 ```
 
-Omit `--backend` to use Jev. Run the full frozen eval once per backend before using
-`compare`; the command rejects failed or mismatched runs, recomputes metrics from
-prediction records, and pairs examples by ID. It checks IDs against the local frozen
-split and identifies limited samples. `reanalyse` creates updated metrics and HTML
-from saved evidence without contacting either model; original files stay intact.
+Omit `--backend` to use Jev. `compare` accepts two or three eval-run directories
+from distinct backends, in any order (the backend is named `laya`, not `yala`).
+Run the full frozen eval once per backend first; demo/dev runs cannot be compared.
+The command rejects failed or mismatched runs, recomputes metrics from prediction
+records, and aligns every backend by ID. It checks IDs against the local frozen
+split and identifies limited samples. Three-run reports include all three pairwise
+comparisons, a shared scoreboard, and an all-model error explorer. Each comparison
+writes `comparison.json`, `paired_predictions.jsonl`, and standalone `report.html`.
+`reanalyse` creates updated metrics and HTML from saved evidence without contacting
+any model; original files stay intact.
 
 When provenance is present, reanalysis checks selected IDs and review/reference
 fingerprints, schema fingerprints, and manifest/metrics agreement before scoring.
@@ -110,7 +135,7 @@ which this benchmark records without post-hoc calibration. The comparison report
 also separates Laya GPU inference time from client round-trip latency.
 
 **Keep the frozen 20% eval split untouched during prompt and schema development.**
-Use `demo` and `dev-eval` while iterating. Both backends share the same dataset,
+Use `demo` and `dev-eval` while iterating. All three backends share the same dataset,
 schema, evaluation, metrics, cache, and artifact pipeline.
 
 ## Reading the analysis
@@ -125,6 +150,8 @@ Comparison reports include a paired, sentiment/style-stratified bootstrap interv
 (5,000 resamples, seed 42) for accuracy and macro-F1 differences, plus an exact
 McNemar test on discordant pairs. These are exploratory, conditional on this dataset;
 they do not capture uncertain annotations, repeated model sampling, or dataset shift.
+Three-backend reports compute these statistics for every pair on the same matched
+sample; intervals and p-values are not adjusted for multiple comparisons.
 Confidence tables show accepted counts and accuracy intervals so a tiny high-confidence
 subset is not mistaken for demonstrated safety. ECE uses ten equal-width bins;
 multiclass Brier is the sum over classes (range 0–2). Cached latency is historical;

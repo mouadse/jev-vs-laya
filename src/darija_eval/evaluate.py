@@ -13,6 +13,7 @@ from .cache import PredictionCache, is_valid_prediction
 from .dataset import Example, dataset_fingerprint
 from .metrics import compute_metrics, error_analysis
 from .report import html_report
+from .schema import configuration_fingerprint
 
 
 def evaluate_examples(
@@ -24,11 +25,24 @@ def evaluate_examples(
     results_root: Path = Path("results"),
     cache: PredictionCache | None = None,
     evaluation_provenance: dict[str, Any] | None = None,
+    experiment_config: dict[str, Any] | None = None,
 ) -> tuple[Path, list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
     if len({example.id for example in examples}) != len(examples):
         raise ValueError("evaluation example IDs must be unique")
+    schema_fingerprint = getattr(backend, "schema_fingerprint", None)
+    # Snapshot caller metadata before workers start; reject non-JSON/NaN values.
+    configuration = json.loads(json.dumps({
+        "identity_version": 2,
+        "backend": backend.name,
+        "requested_model": backend.model_identifier,
+        "schema_version": backend.schema_version,
+        "schema_fingerprint": schema_fingerprint,
+        "option_order": getattr(backend, "option_order", None),
+        "experiment": experiment_config if experiment_config is not None else {},
+    }, allow_nan=False))
+    experiment_fingerprint = configuration_fingerprint(configuration)
     cache = cache or PredictionCache()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     run_dir = results_root / f"{backend.name}_{split_name}_{timestamp}"
@@ -36,12 +50,13 @@ def evaluate_examples(
     predictions: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     started = time.perf_counter()
-    schema_fingerprint = getattr(backend, "schema_fingerprint", None)
     provenance = {
         **(evaluation_provenance or {}),
         "selection_fingerprint": dataset_fingerprint(examples),
         "selected_ids": [example.id for example in examples],
         "schema_fingerprint": schema_fingerprint,
+        "experiment_config": configuration,
+        "experiment_fingerprint": experiment_fingerprint,
         "concurrency": concurrency,
     }
     (run_dir / "manifest.json").write_text(json.dumps({
@@ -56,7 +71,7 @@ def evaluate_examples(
     def run_one(example: Example) -> tuple[Example, Prediction, bool]:
         key = cache.key(
             backend.name, backend.model_identifier, backend.schema_version, example.review,
-            schema_fingerprint,
+            schema_fingerprint, experiment_fingerprint,
         )
         with review_locks[example.review]:
             cached = cache.get(key)
@@ -76,7 +91,9 @@ def evaluate_examples(
             example = futures[future]
             try:
                 row, prediction, cached = future.result()
-                predictions.append(_record(row, split_name, backend, prediction, cached))
+                record = _record(row, split_name, backend, prediction, cached)
+                record["experiment_fingerprint"] = experiment_fingerprint
+                predictions.append(record)
             except BackendError as error:
                 failures.append(
                     {
@@ -89,6 +106,7 @@ def evaluate_examples(
                         "backend": backend.name,
                         "model": backend.model_identifier,
                         "schema_version": backend.schema_version,
+                        "experiment_fingerprint": experiment_fingerprint,
                         "error_type": type(error).__name__,
                         "error": str(error),
                     }

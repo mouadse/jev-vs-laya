@@ -50,9 +50,12 @@ class PredictionCache:
     def key(
         backend: str, model: str, schema_version: str, text: str,
         schema_fingerprint: str | None = None,
+        experiment_fingerprint: str | None = None,
     ) -> str:
         payload = json.dumps(
             {
+                "cache_identity_version": 2,
+                "experiment_fingerprint": experiment_fingerprint,
                 "backend": backend,
                 "model": model,
                 "schema_version": schema_version,
