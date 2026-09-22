@@ -1,7 +1,7 @@
 # Evaluation reference and review protocol
 
 The question is agreement with the sentiment annotations in `ohidaoui/darija-reviews`
-under one unchanged, zero-shot three-class schema. It is not proof of production
+under one shared, versioned, zero-shot three-class schema. It is not proof of production
 accuracy or human-level Darija understanding. Dataset annotations are the reference;
 their independent adjudication has not been established by this project.
 
@@ -35,10 +35,12 @@ labels alongside any separately versioned adjudicated reference and report agree
 and changes. Do not silently replace the current benchmark's ground truth.
 
 Before review, agree how to handle mixed opinions, unclear targets, recommendations,
-factual questions, sarcasm, elongated words and code switching. The current schema
-puts mixed/unclear cases in neutral; a reference whose rules differ measures task
-alignment as well as language understanding. This protocol is proposed future work;
-no human adjudication has been performed here.
+factual questions, sarcasm, elongated words and code switching. Schema v2 reserves
+neutral for factual statements, balanced opinions and questions without an expressed
+attitude; unfamiliar language alone is not neutral. Schema v1 included "unclear"
+in its neutral criterion. A reference whose rules differ measures task alignment as
+well as language understanding. This protocol is proposed future work; no human
+adjudication has been performed here.
 
 ## Interpret measured differences
 
@@ -62,6 +64,21 @@ and intervals as well as coverage; select operating thresholds on dev, then free
 them before a new independent test. The currently inspected eval set must not become
 a prompt/threshold optimization loop. Further confirmatory claims need new independent
 data collected without consulting model predictions.
+
+Reports include a predicted-class reliability diagram with ten equal-width bins
+(not separate class-wise calibration). Empty bins have no plotted point. Selective
+risk is the error rate among accepted predictions. Risk–coverage endpoints accept
+whole equal-confidence groups, making the result invariant to row ordering.
+Reported AURC uses grouped right-step integration: sum of each increase in successful
+coverage times its endpoint risk. This is not arbitrary per-rank tie breaking.
+Accuracy at 50% and 80% coverage uses the first endpoint reaching the target and
+discloses actual coverage, which may overshoot. Requested coverage also counts API
+failures in the denominator. These are descriptive statistics, not fitted thresholds.
+
+New inference manifests embed the reference audit computed from the validated source
+dataset and frozen split. Duplicate counts describe the full source dataset, not a
+limited run's subset. Historical reports without this audit do not invent counts or
+claim independently confirmed annotation errors.
 
 Timing includes client/network/queue/retry overhead and may mix warm/cold observations.
 Cached rows retain the latency of their original request. Do not infer throughput

@@ -182,6 +182,7 @@ def _provenance(examples, split, split_name, selected) -> dict:
         "split_size": len(ids), "selected_size": len(selected),
         "full_split": {row.id for row in selected} == set(ids),
         "split_ids_sha256": hashlib.sha256(json.dumps(list(ids)).encode()).hexdigest(),
+        "reference_audit": reference_audit(examples, split),
     }
 
 

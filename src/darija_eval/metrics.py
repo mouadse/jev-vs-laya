@@ -118,6 +118,64 @@ def _group_quality(records: Sequence[dict[str, Any]], field: str) -> dict[str, A
     return result
 
 
+def _risk_coverage(
+    correct: Sequence[bool], confidence: Sequence[float], requested: int
+) -> dict[str, Any]:
+    """Selective risk-coverage curve with whole tie groups.
+
+    Endpoints are taken at each distinct confidence value, descending, after
+    accepting every prediction tied at that value, so input order cannot
+    influence the curve. Coverage divides by successful predictions; requested
+    coverage divides by all requested examples (including API failures). AURC
+    uses grouped right-step integration (sum of delta successful coverage
+    times endpoint risk), not conventional per-rank integration with arbitrary
+    within-tie ordering.
+    """
+    total = len(correct)
+    groups: dict[float, list[int]] = defaultdict(list)
+    for index, value in enumerate(confidence):
+        groups[float(value)].append(index)
+    curve: list[dict[str, Any]] = []
+    accepted = 0
+    accepted_correct = 0
+    previous_coverage = 0.0
+    aurc = 0.0
+    for threshold in sorted(groups, reverse=True):
+        members = groups[threshold]
+        accepted += len(members)
+        accepted_correct += sum(1 for index in members if correct[index])
+        coverage = accepted / total
+        accuracy = accepted_correct / accepted
+        risk = 1.0 - accuracy
+        aurc += (coverage - previous_coverage) * risk
+        previous_coverage = coverage
+        curve.append(
+            {
+                "threshold": threshold,
+                "n": accepted,
+                "coverage": coverage,
+                "requested_coverage": accepted / requested if requested else 0.0,
+                "accuracy": accuracy,
+                "risk": risk,
+            }
+        )
+    accuracy_at_coverage = []
+    for target in (0.5, 0.8):
+        endpoint = next(item for item in curve if item["coverage"] >= target)
+        accuracy_at_coverage.append(
+            {
+                "target_coverage": target,
+                "n": endpoint["n"],
+                "coverage": endpoint["coverage"],
+                "requested_coverage": endpoint["requested_coverage"],
+                "accuracy": endpoint["accuracy"],
+                "risk": endpoint["risk"],
+                "threshold": endpoint["threshold"],
+            }
+        )
+    return {"aurc": aurc, "curve": curve, "accuracy_at_coverage": accuracy_at_coverage}
+
+
 def _calibration(records: Sequence[dict[str, Any]], requested: int) -> tuple[dict[str, Any] | None, str | None]:
     for row in records:
         probabilities = row.get("probabilities")
@@ -184,8 +242,13 @@ def _calibration(records: Sequence[dict[str, Any]], requested: int) -> tuple[dic
             "coverage": "Accepted predictions / successful predictions.",
             "requested_coverage": "Accepted predictions / all requested examples, including API failures.",
             "log_loss": "Mean negative natural log probability of gold class, clipped at 1e-15.",
+            "risk": "Selective error rate among accepted predictions (1 - accuracy) at a risk-coverage endpoint.",
+            "aurc": "Grouped right-step area under the risk-coverage curve: endpoints at each distinct confidence with whole tie groups accepted jointly (input order cannot change the curve); AURC = sum(delta successful coverage * endpoint risk), not conventional per-rank integration with arbitrary within-tie ordering.",
+            "accuracy_at_coverage": "First risk-coverage endpoint with successful coverage >= target; actual coverage and threshold disclosed and may exceed the target when a tie group straddles it.",
+            "risk_coverage_scope": "Risk-coverage endpoints condition on successful predictions only; coverage divides by successful predictions while requested_coverage divides by all requested examples, including API failures.",
         },
         "thresholds": thresholds,
+        "risk_coverage": _risk_coverage(correct, confidence, requested),
     }, None
 
 

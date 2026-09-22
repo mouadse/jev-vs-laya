@@ -113,3 +113,86 @@ def test_report_explains_uncertainty_reference_and_cached_latency() -> None:
     assert "Phase 01" not in output
     assert "frozen 20% sample" not in output
     assert "API failures</a>" in output
+
+
+def _calibration_rows() -> list[dict]:
+    return [
+        {
+            "id": 1, "gold": "positive", "predicted": "positive", "correct": True,
+            "probabilities": {"positive": 0.9, "neutral": 0.05, "negative": 0.05},
+            "confidence": 0.9, "writing_style": "Arabic", "topic": "it",
+            "latency_ms": 20.0, "text": "زوين",
+        },
+        {
+            "id": 2, "gold": "negative", "predicted": "positive", "correct": False,
+            "probabilities": {"positive": 0.6, "neutral": 0.2, "negative": 0.2},
+            "confidence": 0.6, "writing_style": "Arabizi", "topic": "it",
+            "latency_ms": 25.0, "text": "ماشي زوين",
+        },
+    ]
+
+
+def test_report_renders_without_new_probability_metrics() -> None:
+    import copy
+
+    rows = _calibration_rows()
+    metrics = compute_metrics(rows, requested=2, api_failures=0, wall_clock_seconds=0.5, topic_min_n=1)
+    metrics.update(backend="jev", split="dev", requested_model="jev")
+    old = copy.deepcopy(metrics)
+    old["calibration"].pop("risk_coverage", None)
+    old["calibration"].pop("reliability_bins", None)
+    output = html_report(old, rows)
+    assert "<svg" not in output
+    assert "Quality at a glance" in output
+
+
+def test_report_renders_without_any_probabilities() -> None:
+    rows = _calibration_rows()
+    for row in rows:
+        row.pop("probabilities")
+        row["confidence"] = None
+    metrics = compute_metrics(rows, requested=2, api_failures=0, wall_clock_seconds=0.5, topic_min_n=1)
+    metrics.update(backend="jev", split="dev", requested_model="jev")
+    assert metrics["calibration"] is None
+    output = html_report(metrics, rows)
+    assert "<svg" not in output
+    assert "Quality at a glance" in output
+
+
+def test_report_escapes_provenance_and_handles_empty_bins() -> None:
+    rows = _calibration_rows()
+    metrics = compute_metrics(rows, requested=2, api_failures=0, wall_clock_seconds=0.5, topic_min_n=1)
+    metrics.update(backend="jev", split="dev", requested_model="jev")
+    metrics["provenance"] = {
+        "dataset_fingerprint": '"><script>alert(1)</script>',
+        "reference_audit": {
+            "reference_labels": {"source": '<script>alert("x")</script>'},
+            "overall": {"n": 851},
+            "duplicates": {
+                "matching_rule": '<img src=x onerror=alert(1)>',
+                "group_count": 5, "rows_in_groups": 10,
+                "conflicting_label_group_count": 0, "cross_split_group_count": 0,
+            },
+        },
+    }
+    for entry in metrics["calibration"]["reliability_bins"][:-1]:
+        entry["accuracy"] = None
+        entry["confidence"] = None
+        entry["n"] = 0
+    output = html_report(metrics, rows)
+    assert "<svg" in output
+    assert "—" in output
+    assert '<script>alert' not in output
+    assert "<img src=x" not in output
+    assert "&lt;script&gt;" in output
+
+
+def test_report_charts_are_standalone() -> None:
+    rows = _calibration_rows()
+    metrics = compute_metrics(rows, requested=2, api_failures=0, wall_clock_seconds=0.5, topic_min_n=1)
+    metrics.update(backend="jev", split="dev", requested_model="jev")
+    output = html_report(metrics, rows)
+    assert output.count("<svg") >= 2
+    assert 'role="img"' in output
+    assert 'src="http' not in output
+    assert 'href="http' not in output

@@ -48,6 +48,13 @@ The first command stores only the multilingual checkpoint in a Modal Volume. Put
 the deployed `predict` URL in `LAYA_ENDPOINT_URL`. The endpoint accepts only a
 `review` string; sentiment labels, writing style, and topic are never sent to Laya.
 
+Schema v2 shortens the criteria, explicitly references `review`, and no longer treats
+unfamiliar language as neutral. It is shared by Jev and Laya; redeploy Laya after a
+schema change. Version and question-content changes invalidate prediction cache keys.
+Old v1 runs remain readable, but cannot be paired with v2 runs by `compare`.
+No temperature, decision thresholds, transliteration or option-order ensemble has
+been fitted or enabled; prompt changes alone do not establish an accuracy gain.
+
 ## Commands
 
 ```bash
@@ -56,7 +63,7 @@ uv run darija-eval inspect --json-output results/reference_audit.json
 uv run darija-eval demo --backend jev
 uv run darija-eval demo --backend laya
 uv run darija-eval dev-eval --backend laya
-uv run darija-eval eval --backend laya --limit 20
+uv run darija-eval dev-eval --backend laya --limit 20
 uv run darija-eval eval --backend laya
 uv run darija-eval compare results/jev_eval_<timestamp> results/laya_eval_<timestamp>
 uv run darija-eval reanalyse results/jev_eval_<timestamp>
@@ -122,6 +129,12 @@ Confidence tables show accepted counts and accuracy intervals so a tiny high-con
 subset is not mistaken for demonstrated safety. ECE uses ten equal-width bins;
 multiclass Brier is the sum over classes (range 0–2). Cached latency is historical;
 only explicitly fresh requests enter current-run latency statistics.
+
+Individual reports also include a predicted-class reliability diagram and a
+tie-aware risk–coverage curve with AURC and accuracy at 50%/80% coverage. Equal-confidence
+groups are accepted whole; actual coverage is shown when it exceeds the target.
+A prominent reference-label caveat includes full-source duplicate audit counts for
+new runs; historical runs without embedded audit data show qualified disclosures.
 
 See [evaluation reference and review protocol](docs/evaluation.md) for reference-label
 handling and rules for future experiments. Do not relabel an error merely because a

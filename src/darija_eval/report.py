@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import math
 from collections import Counter
 from typing import Any, Sequence
 
@@ -87,6 +88,7 @@ def _hero(metrics: dict[str, Any]) -> str:
         <span><b>{html.escape(resolved)}</b> resolved model</span>
         <span><b>{html.escape(metrics.get('split', 'unknown'))}</b> split</span>
       </div>
+      {_label_caveat(metrics)}
       <p class="plain-note">{_scope_note(metrics)}</p>
     </header>
     """
@@ -220,17 +222,25 @@ def _confidence_section(metrics: dict[str, Any]) -> str:
         </section>
         """
     threshold_rows = []
-    for row in calibration["thresholds"]:
-        accuracy = "—" if row["accuracy"] is None else _pct(row["accuracy"])
-        interval = row.get("accuracy_ci95")
-        if interval:
-            accuracy += f"<br><small>95%: {_pct(interval['low'])}–{_pct(interval['high'])}</small>"
+    for row in calibration.get("thresholds") or []:
+        if not isinstance(row, dict):
+            continue
+        accuracy_value = _finite(row.get("accuracy"))
+        accuracy = "—" if accuracy_value is None else _pct(accuracy_value)
+        interval = row.get("accuracy_ci95") or {}
+        low, high = _finite(interval.get("low")), _finite(interval.get("high"))
+        if low is not None and high is not None:
+            accuracy += f"<br><small>95%: {_pct(low)}–{_pct(high)}</small>"
+        threshold = _finite(row.get("threshold"))
+        coverage = _finite(row.get("coverage"))
+        count = row.get("n")
+        errors = row.get("errors")
         threshold_rows.append(
             f"""
             <tr>
-              <th>≥ {row['threshold']:.2f}</th>
-              <td><div class="coverage"><i style="width:{row['coverage'] * 100:.1f}%"></i></div><span>{_pct(row['coverage'])}</span></td>
-              <td>{row['n']}</td><td>{accuracy}</td><td>{row['errors']}</td>
+              <th>≥ {threshold if threshold is not None else 0.0:.2f}</th>
+              <td><div class="coverage"><i style="width:{_clamp01(coverage or 0.0) * 100:.1f}%"></i></div><span>{_pct(coverage) if coverage is not None else "—"}</span></td>
+              <td>{count if isinstance(count, int) else "—"}</td><td>{accuracy}</td><td>{errors if isinstance(errors, int) else "—"}</td>
             </tr>
             """
         )
@@ -253,12 +263,227 @@ def _confidence_section(metrics: dict[str, Any]) -> str:
           <div class="mini-heading"><span>Confidence threshold</span><small>Successful predictions</small></div>
           <div class="table-scroll"><table class="threshold-table">
             <thead><tr><th>Confidence</th><th>Coverage</th><th>Accepted N</th><th>Accuracy</th><th>Errors</th></tr></thead>
-            <tbody>{''.join(threshold_rows)}</tbody>
+            <tbody>{''.join(threshold_rows) if threshold_rows else '<tr><td colspan="5">Threshold detail is unavailable in this saved run.</td></tr>'}</tbody>
           </table></div>
         </div>
       </div>
+      <div class="wrap calib-extra">
+        {_reliability_block(calibration)}
+        {_risk_coverage_block(calibration)}
+      </div>
     </section>
     """
+
+
+def _reliability_block(calibration: dict[str, Any]) -> str:
+    bins = calibration.get("reliability_bins")
+    if not isinstance(bins, list) or not bins:
+        return """
+        <div class="chart-card">
+          <h3>Reliability diagram · predicted class</h3>
+          <p>Reliability-bin detail is unavailable in this saved run; thresholds above still describe confidence selection.</p>
+        </div>
+        """
+    table_rows = []
+    points = []
+    for entry in bins:
+        if not isinstance(entry, dict):
+            continue
+        lower, upper = _finite(entry.get("lower")), _finite(entry.get("upper"))
+        count = entry.get("n")
+        accuracy = _finite(entry.get("accuracy"))
+        confidence = _finite(entry.get("confidence"))
+        label = (
+            f"{lower:.1f}–{upper:.1f}" if lower is not None and upper is not None else "—"
+        )
+        table_rows.append(
+            "<tr>"
+            f"<td>{html.escape(label)}</td>"
+            f"<td>{count if isinstance(count, int) else '—'}</td>"
+            f"<td>{f'{confidence:.3f}' if confidence is not None else '—'}</td>"
+            f"<td>{f'{accuracy:.3f}' if accuracy is not None else '—'}</td>"
+            "</tr>"
+        )
+        if accuracy is not None and confidence is not None:
+            points.append((confidence, accuracy, count if isinstance(count, int) else 0))
+    return f"""
+        <div class="calib-panels">
+          <div class="chart-card">
+            <h3>Reliability diagram · predicted class</h3>
+            <p>One series over predicted-class confidence. Dashed diagonal marks ideal calibration; dots below it mark overconfidence. Empty bins have no dot and show — below.</p>
+            {_reliability_svg(points)}
+          </div>
+          <div class="chart-card">
+            <h3>Reliability bins</h3>
+            <p>Ten equal-width bins over predicted-class confidence. N is the bin count.</p>
+            <div class="table-scroll"><table class="threshold-table">
+              <thead><tr><th>Bin</th><th>N</th><th>Confidence</th><th>Accuracy</th></tr></thead>
+              <tbody>{''.join(table_rows)}</tbody>
+            </table></div>
+          </div>
+        </div>
+        """
+
+
+def _reliability_svg(points: list[tuple[float, float, int]]) -> str:
+    width, height = 360, 300
+    left, top, right, bottom = 46, 14, 14, 46
+    plot_w, plot_h = width - left - right, height - top - bottom
+    def x(value: float) -> float:
+        return left + _clamp01(value) * plot_w
+    def y(value: float) -> float:
+        return top + (1.0 - _clamp01(value)) * plot_h
+    grid = []
+    for tick in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+        grid.append(
+            f'<line x1="{x(tick):.1f}" y1="{y(0):.1f}" x2="{x(tick):.1f}" y2="{y(1):.1f}" class="grid"/>'
+            f'<text x="{x(tick):.1f}" y="{y(0) + 16:.1f}" text-anchor="middle" class="axis">{tick:.1f}</text>'
+            f'<line x1="{x(0):.1f}" y1="{y(tick):.1f}" x2="{x(1):.1f}" y2="{y(tick):.1f}" class="grid"/>'
+            f'<text x="{x(0) - 6:.1f}" y="{y(tick) + 3:.1f}" text-anchor="end" class="axis">{tick:.1f}</text>'
+        )
+    gaps = []
+    dots = []
+    for confidence, accuracy, count in points:
+        gaps.append(
+            f'<line x1="{x(confidence):.1f}" y1="{y(confidence):.1f}" '
+            f'x2="{x(confidence):.1f}" y2="{y(accuracy):.1f}" class="gap"/>'
+        )
+    for confidence, accuracy, count in points:
+        dots.append(
+            f'<circle cx="{x(confidence):.1f}" cy="{y(accuracy):.1f}" r="5" class="dot">'
+            f"<title>Confidence {confidence:.3f}, accuracy {accuracy:.3f}, n={count}</title>"
+            "</circle>"
+        )
+    summary = (
+        f"{len(points)} of 10 bins with predictions; "
+        + (
+            "all bins empty." if not points else
+            f"plotted confidence {min(p[0] for p in points):.2f}–{max(p[0] for p in points):.2f}."
+        )
+    )
+    return f"""
+            <svg viewBox="0 0 {width} {height}" role="img" aria-label="Reliability diagram of observed accuracy against mean predicted confidence. {html.escape(summary)}">
+              <title>Reliability diagram · predicted class</title>
+              {''.join(grid)}
+              <line x1="{x(0):.1f}" y1="{y(0):.1f}" x2="{x(1):.1f}" y2="{y(1):.1f}" class="ideal"/>
+              {''.join(gaps)}
+              {''.join(dots) if dots else f'<text x="{(left + plot_w / 2):.1f}" y="{(top + plot_h / 2):.1f}" text-anchor="middle" class="axis">No bin has predictions</text>'}
+              <text x="{(left + plot_w / 2):.1f}" y="{height - 8:.1f}" text-anchor="middle" class="axis">Mean predicted confidence</text>
+              <text x="12" y="{(top + plot_h / 2):.1f}" text-anchor="middle" class="axis" transform="rotate(-90 12 {(top + plot_h / 2):.1f})">Observed accuracy</text>
+            </svg>
+        """
+
+
+def _risk_coverage_block(calibration: dict[str, Any]) -> str:
+    risk = calibration.get("risk_coverage")
+    if not isinstance(risk, dict):
+        return ""
+    raw_curve = risk.get("curve") if isinstance(risk.get("curve"), list) else []
+    raw_targets = (
+        risk.get("accuracy_at_coverage") if isinstance(risk.get("accuracy_at_coverage"), list) else []
+    )
+    curve = [row for row in raw_curve if isinstance(row, dict)]
+    targets = [row for row in raw_targets if isinstance(row, dict)]
+    aurc = _finite(risk.get("aurc"))
+    if not curve and not targets and aurc is None:
+        return ""
+    target_rows = []
+    for row in targets:
+        target = _finite(row.get("target_coverage"))
+        coverage = _finite(row.get("coverage"))
+        requested = _finite(row.get("requested_coverage"))
+        accuracy = _finite(row.get("accuracy"))
+        risk_value = _finite(row.get("risk"))
+        threshold = _finite(row.get("threshold"))
+        count = row.get("n")
+        target_rows.append(
+            "<tr>"
+            f"<td>{_pct(target) if target is not None else '—'}</td>"
+            f"<td>{f'{threshold:.2f}' if threshold is not None else '—'}</td>"
+            f"<td>{count if isinstance(count, int) else '—'}</td>"
+            f"<td>{_pct(coverage) if coverage is not None else '—'}</td>"
+            f"<td>{_pct(requested) if requested is not None else '—'}</td>"
+            f"<td>{_pct(accuracy) if accuracy is not None else '—'}</td>"
+            f"<td>{f'{risk_value:.3f}' if risk_value is not None else '—'}</td>"
+            "</tr>"
+        )
+    return f"""
+        <div class="calib-panels">
+          <div class="chart-card">
+            <h3>Risk–coverage curve</h3>
+            <p>Selective-prediction tradeoff over successful predictions. AURC {_number(aurc)}: grouped right-step area, each step contributing Δcoverage × endpoint risk.</p>
+            {_risk_svg(curve, aurc)}
+          </div>
+          <div class="chart-card">
+            <h3>Accuracy at coverage</h3>
+            <p>Ties are accepted whole, so actual coverage may exceed the target. Coverage divides by successful predictions; requested coverage divides by all requested examples including failures.</p>
+            <div class="table-scroll"><table class="threshold-table">
+              <thead><tr><th>Target</th><th>Threshold</th><th>N</th><th>Coverage</th><th>Requested</th><th>Accuracy</th><th>Risk</th></tr></thead>
+              <tbody>{''.join(target_rows) if target_rows else '<tr><td colspan="7">Coverage targets are unavailable in this saved run.</td></tr>'}</tbody>
+            </table></div>
+          </div>
+        </div>
+        """
+
+
+def _risk_svg(curve: list[dict[str, Any]], aurc: float | None) -> str:
+    width, height = 360, 300
+    left, top, right, bottom = 46, 14, 14, 46
+    plot_w, plot_h = width - left - right, height - top - bottom
+    points = []
+    for row in curve:
+        coverage, risk_value = _finite(row.get("coverage")), _finite(row.get("risk"))
+        if coverage is None or risk_value is None:
+            continue
+        points.append((_clamp01(coverage), max(0.0, risk_value)))
+    points.sort(key=lambda item: item[0])
+    risks = [item[1] for item in points]
+    ymax = max(risks) if risks else 0.0
+    ymax = max(ymax * 1.15, 0.05)
+    def x(value: float) -> float:
+        return left + _clamp01(value) * plot_w
+    def y(value: float) -> float:
+        return top + (1.0 - min(1.0, max(0.0, value / ymax))) * plot_h
+    grid = []
+    for tick in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+        grid.append(
+            f'<line x1="{x(tick):.1f}" y1="{y(0):.1f}" x2="{x(tick):.1f}" y2="{y(ymax):.1f}" class="grid"/>'
+            f'<text x="{x(tick):.1f}" y="{y(0) + 16:.1f}" text-anchor="middle" class="axis">{tick:.1f}</text>'
+        )
+    for fraction in (0.0, 0.5, 1.0):
+        level = ymax * fraction
+        grid.append(
+            f'<line x1="{x(0):.1f}" y1="{y(level):.1f}" x2="{x(1):.1f}" y2="{y(level):.1f}" class="grid"/>'
+            f'<text x="{x(0) - 6:.1f}" y="{y(level) + 3:.1f}" text-anchor="end" class="axis">{level:.2f}</text>'
+        )
+    path = ""
+    if points:
+        segments = [f"M {x(0):.1f} {y(points[0][1]):.1f}"]
+        for coverage, risk_value in points:
+            segments.append(f"V {y(risk_value):.1f} H {x(coverage):.1f}")
+        path = f'<path d="{" ".join(segments)}" class="curve" fill="none"/>'
+    dots = []
+    for coverage, risk_value in points:
+        dots.append(
+            f'<circle cx="{x(coverage):.1f}" cy="{y(risk_value):.1f}" r="4" class="dot">'
+            f"<title>Coverage {coverage:.3f}, risk {risk_value:.3f}</title>"
+            "</circle>"
+        )
+    summary = (
+        "curve unavailable."
+        if not points else
+        f"{len(points)} steps, coverage {points[0][0]:.2f}–{points[-1][0]:.2f}, risk 0–{max(risks):.3f}."
+    )
+    return f"""
+            <svg viewBox="0 0 {width} {height}" role="img" aria-label="Risk-coverage curve of selective-prediction error against coverage. {html.escape(summary)}">
+              <title>Risk–coverage curve</title>
+              {''.join(grid)}
+              {path}
+              {''.join(dots) if dots else f'<text x="{(left + plot_w / 2):.1f}" y="{(top + plot_h / 2):.1f}" text-anchor="middle" class="axis">No coverage steps recorded</text>'}
+              <text x="{(left + plot_w / 2):.1f}" y="{height - 8:.1f}" text-anchor="middle" class="axis">Coverage (successful predictions)</text>
+              <text x="12" y="{(top + plot_h / 2):.1f}" text-anchor="middle" class="axis" transform="rotate(-90 12 {(top + plot_h / 2):.1f})">Risk (error rate)</text>
+            </svg>
+        """
 
 
 def _topic_and_latency(metrics: dict[str, Any]) -> str:
@@ -351,6 +576,7 @@ def _errors_section(errors: Sequence[dict[str, Any]]) -> str:
 def _methodology(metrics: dict[str, Any]) -> str:
     requested_model = html.escape(metrics.get("requested_model", "unknown"))
     resolved = html.escape(", ".join(metrics.get("resolved_models") or ["unknown"]))
+    provenance_note = _provenance_note(metrics)
     return f"""
     <footer class="wrap footer">
       <details>
@@ -360,15 +586,45 @@ def _methodology(metrics: dict[str, Any]) -> str:
           <p><b>Scope</b> {_scope_note(metrics)} The persisted split manifest records the split strategy. Do not use eval errors to tune prompts or select thresholds.</p>
           <p><b>Inputs</b> The model receives only the review text. Gold label, writing style, and topic are used after prediction for analysis.</p>
           <p><b>Reference labels</b> Dataset labels are treated as ground truth and have not been independently adjudicated. Errors may reflect ambiguous sentiment or annotation issues as well as model limitations.</p>
+          <p><b>Provenance</b> {provenance_note}</p>
           <p><b>Failures</b> API failures are counted separately and never treated as incorrect model predictions.</p>
           <p><b>Model</b> Requested <code>{requested_model}</code>; resolved <code>{resolved}</code>; schema <code>{html.escape(metrics.get('schema_version', 'unknown'))}</code>.</p>
-          <p><b>Calibration</b> Confidence means the probability assigned to the predicted class. ECE uses ten equal-width bins.</p>
+          <p><b>Calibration</b> Confidence means the probability assigned to the predicted class. ECE uses ten equal-width bins. The reliability diagram shows one predicted-class series against the ideal diagonal. The risk–coverage curve, when present, covers successful predictions; requested coverage divides by all requested examples including failures, and AURC is the grouped right-step sum of Δcoverage × endpoint risk.</p>
         </div>
       </details>
       <div class="artifact-links"><a href="predictions.jsonl">Predictions</a><a href="failures.jsonl">Model errors</a><a href="api_failures.jsonl">API failures</a><a href="metrics.json">Metrics JSON</a><a href="summary.md">Markdown summary</a></div>
       <p class="footer-mark">DARĪJA / DECISION REPORT <span>Generated locally</span></p>
     </footer>
     """
+
+
+def _provenance_note(metrics: dict[str, Any]) -> str:
+    provenance = metrics.get("provenance")
+    if not isinstance(provenance, dict):
+        return "Saved-run provenance is unavailable; label and overlap notes above are generic and carry no audit counts."
+    parts = []
+    fingerprint = provenance.get("dataset_fingerprint")
+    if isinstance(fingerprint, str) and fingerprint.strip():
+        parts.append(f"dataset <code>{html.escape(fingerprint.strip()[:16])}…</code>")
+    strategy = provenance.get("stratification")
+    if isinstance(strategy, str) and strategy.strip():
+        parts.append(f"stratified by {html.escape(strategy.strip())}")
+    audit = provenance.get("reference_audit")
+    if isinstance(audit, dict):
+        overall = audit.get("overall") if isinstance(audit.get("overall"), dict) else {}
+        overall_n = overall.get("n")
+        duplicates = audit.get("duplicates") if isinstance(audit.get("duplicates"), dict) else {}
+        group_count = duplicates.get("group_count")
+        rows_in_groups = duplicates.get("rows_in_groups")
+        if isinstance(overall_n, int):
+            parts.append(f"reference audit over the full source dataset (n={overall_n}), not this run's subset")
+        if isinstance(group_count, int) and isinstance(rows_in_groups, int):
+            parts.append(f"{group_count} exact-duplicate groups covering {rows_in_groups} rows")
+    else:
+        parts.append("no embedded reference audit in this saved run; overlap notes above are generic")
+    if not parts:
+        return "Run provenance is recorded but carries no dataset details."
+    return "; ".join(parts) + "."
 
 
 def _empty_report(metrics: dict[str, Any]) -> str:
@@ -417,6 +673,64 @@ def _group_note(values: dict[str, Any]) -> str:
     return note
 
 
+def _finite(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _clamp01(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+
+def _label_caveat(metrics: dict[str, Any]) -> str:
+    provenance = metrics.get("provenance") or {}
+    audit = provenance.get("reference_audit")
+    if isinstance(audit, dict):
+        ref = audit.get("reference_labels") if isinstance(audit.get("reference_labels"), dict) else {}
+        source = ref.get("source") or "Dataset-provided sentiment labels; not independently adjudicated."
+        duplicates = audit.get("duplicates") if isinstance(audit.get("duplicates"), dict) else {}
+        overall = audit.get("overall") if isinstance(audit.get("overall"), dict) else {}
+        overall_n = overall.get("n")
+        scope = (
+            f"Reference audit covers the full source dataset (n={overall_n}), not just this run's subset. "
+            if isinstance(overall_n, int) else
+            "Reference audit covers the full source dataset, not just this run's subset. "
+        )
+        counts = []
+        for key, caption in (
+            ("group_count", "exact-duplicate groups"),
+            ("rows_in_groups", "rows in groups"),
+            ("conflicting_label_group_count", "conflicting-label groups"),
+            ("cross_split_group_count", "cross-split groups"),
+        ):
+            value = duplicates.get(key)
+            if isinstance(value, int):
+                counts.append(f"{value} {caption}")
+        rule = duplicates.get("matching_rule")
+        detail = (
+            f" Duplicate screening finds {', '.join(counts)}." if counts else
+            " Duplicate screening counts are unavailable in this saved run."
+        )
+        if isinstance(rule, str) and rule.strip():
+            detail += f" Matching rule: {html.escape(rule.strip())}"
+        else:
+            detail += " Screening covers exact text matches only; near-duplicates can remain."
+        return f"""
+      <p class="caveat" role="note"><b>Reference-label caveat</b>{html.escape(str(source))} {html.escape(scope)}{detail}
+      Scores treat these labels as ground truth; mismatches may reflect ambiguous or imperfect labels as well as model mistakes.
+      Overlap limits apply: repeated or near-repeated reviews can correlate results.</p>
+        """
+    return """
+      <p class="caveat" role="note"><b>Reference-label caveat</b>Reference labels are dataset-provided and have not been
+      independently adjudicated; mismatches may reflect ambiguous or imperfect labels as well as model mistakes.
+      Duplicate screening in the reference audit covers exact text matches only, so near-duplicates can remain and
+      repeated reviews can correlate results. Saved-run provenance is unavailable here, so no audit counts are shown.</p>
+    """
+
+
 def _stat(label: str, value: float, note: str) -> str:
     return f'<div><span>{label}</span><strong>{_pct(value)}</strong><small>{note}</small></div>'
 
@@ -455,6 +769,21 @@ _DOCUMENT = r'''<!doctype html>
     @media(max-width:850px){.hero-grid,.style-grid,.two-up,.confidence-grid,.topic-latency,.errors-head{grid-template-columns:1fr}.hero-score{grid-template-columns:auto 1fr;align-items:center}.score-ring{width:160px}.stat-line{grid-template-columns:repeat(2,1fr)}.stat-line>div:nth-child(2){border-right:0}.style-grid .section-label{margin-bottom:10px}.delta{border-left:0;border-top:1px solid #59655e;padding:25px 0 0}.error-list{grid-template-columns:1fr}.method-grid{grid-template-columns:repeat(2,1fr)}}
     @media(max-width:560px){.wrap{width:min(100% - 24px,1180px)}.hero-grid{padding-top:42px}.hero-grid h1{font-size:3.25rem}.hero-score{grid-template-columns:1fr}.score-ring{width:145px}.runline{display:grid;grid-template-columns:1fr 1fr}.stat-line{grid-template-columns:1fr}.stat-line>div,.stat-line>div+div{padding:22px 0;border-right:0}.style-row{grid-template-columns:88px 1fr 58px}.matrix{grid-template-columns:62px repeat(3,1fr)}.matrix-cell strong{font-size:1.1rem}.topic-row{grid-template-columns:120px 1fr 48px}.filters{align-items:stretch;flex-wrap:wrap}.filters label{width:100%;margin:12px 0 0}.filters input{width:100%}.method-grid{grid-template-columns:1fr}.footer-mark{display:grid;gap:8px}}
     .runline>*,.method-grid>*{min-width:0;overflow-wrap:anywhere}.method-grid code{overflow-wrap:anywhere}
+    .caveat{border:1px solid var(--ink);border-left:6px solid var(--red);background:var(--paper-2);padding:14px 18px;font-size:.84rem;margin:20px 0 0;max-width:900px}
+    .caveat b{display:block;text-transform:uppercase;letter-spacing:.1em;font-size:.64rem;margin-bottom:4px}
+    .calib-extra{margin-top:clamp(36px,5vw,64px);display:grid;gap:clamp(28px,4vw,48px)}
+    .calib-panels{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,48px)}
+    .chart-card{border:1px solid var(--line);padding:clamp(18px,2.5vw,28px);min-width:0}
+    .chart-card h3{font-family:var(--serif);font-weight:400;font-size:1.3rem;margin:0 0 8px;letter-spacing:-.02em}
+    .chart-card p{font-size:.78rem;color:var(--muted);margin:0 0 14px;max-width:520px}
+    .chart-card svg{width:100%;height:auto;display:block;background:var(--paper);border:1px solid var(--line)}
+    .chart-card svg .grid{stroke:var(--line);stroke-width:1}
+    .chart-card svg .axis{font-size:9px;fill:var(--muted);font-family:var(--sans)}
+    .chart-card svg .ideal{stroke:var(--red);stroke-width:1.5;stroke-dasharray:6 4}
+    .chart-card svg .gap{stroke:var(--red);stroke-width:1;opacity:.55}
+    .chart-card svg .curve{stroke:var(--green);stroke-width:2}
+    .chart-card svg .dot{fill:var(--ink);stroke:var(--paper);stroke-width:1.5}
+    @media(max-width:850px){.calib-panels{grid-template-columns:1fr}}
     @media(max-width:560px){.style-row{grid-template-columns:88px minmax(0,1fr) 70px}}
     @media(prefers-reduced-motion:no-preference){.masthead>*{animation:rise .7s cubic-bezier(.22,1,.36,1) both}.masthead>.hero-grid{animation-delay:.08s}.masthead>.runline{animation-delay:.16s}@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}}
     @media print{body{background:#fff}.errors,.ink-band,.latency-panel{print-color-adjust:exact;-webkit-print-color-adjust:exact}.filters{display:none}.error-card{break-inside:avoid}.section{padding-block:40px}.artifact-links{display:none}}

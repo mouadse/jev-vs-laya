@@ -7,13 +7,14 @@ import pytest
 
 from darija_eval.backends.base import PermanentBackendError
 from darija_eval.backends.laya import LayaBackend, MODEL_IDENTIFIER, parse_response
+from darija_eval.schema import SCHEMA_VERSION
 
 
 PAYLOAD = {
     "label": "negative",
     "probabilities": {"positive": 0.05, "neutral": 0.15, "negative": 0.8},
     "model": MODEL_IDENTIFIER,
-    "schema_version": "v1",
+    "schema_version": SCHEMA_VERSION,
     "inference_ms": 38.0,
 }
 
@@ -72,7 +73,7 @@ def test_laya_does_not_retry_permanent_http_error() -> None:
         backend.predict("review")
     assert calls == 1
 
-@pytest.mark.parametrize("field,value", [("model", "different"), ("schema_version", "v2")])
+@pytest.mark.parametrize("field,value", [("model", "different"), ("schema_version", "obsolete")])
 def test_endpoint_configuration_mismatch_is_rejected(field, value):
     class WrongResponse(Response):
         def read(self):
