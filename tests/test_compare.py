@@ -376,3 +376,82 @@ def test_compare_cli_accepts_three_runs_and_reports_invalid_evidence(tmp_path, m
     result = runner.invoke(app, ["compare", "jev", "laya", "jev"])
     assert result.exit_code == 2
     assert "different backends" in result.output
+
+
+KEV_4B_RESOLVED = (
+    "jaredpalmer/kev-4b@1111111111111111111111111111111111111111"
+    "+Qwen/Qwen3-4B-Base@2222222222222222222222222222222222222222"
+    "+kev@3333333333333333333333333333333333333333"
+)
+KEV_9B_RESOLVED = (
+    "jaredpalmer/kev-9b@2629c06a5aeb0feb3b9783bafed17ed8f39ecf5c"
+    "+Qwen/Qwen3.5-9B-Base@68c46c4b3498877f3ef123c856ecfde50c39f404"
+    "+kev@90990a5fac2995b9faa3190f7d437e84f2067768"
+)
+
+
+def _write_kev_variant(path, resolved, predictions):
+    _write_run(path, "kev", predictions)
+    metrics = json.loads((path / "metrics.json").read_text())
+    metrics["resolved_models"] = [resolved]
+    metrics["requested_model"] = resolved
+    (path / "metrics.json").write_text(json.dumps(metrics))
+
+
+def test_comparison_supports_kev_4b_9b_variants(tmp_path):
+    first, second = tmp_path / "kev-4b-run", tmp_path / "kev-9b-run"
+    _write_kev_variant(first, KEV_4B_RESOLVED, [_row(1, "positive", "kev"), _row(2, "negative", "kev")])
+    _write_kev_variant(second, KEV_9B_RESOLVED, [_row(1, "negative", "kev"), _row(2, "positive", "kev")])
+    output = compare_runs(first, second, tmp_path / "results", split_path=None)
+    comparison = json.loads((output / "comparison.json").read_text())
+    assert comparison["backends"] == ["kev-4b", "kev-9b"]
+    assert set(comparison["models"]) == {"kev-4b", "kev-9b"}
+    assert comparison["models"]["kev-4b"]["resolved_models"] == [KEV_4B_RESOLVED]
+    assert comparison["models"]["kev-9b"]["resolved_models"] == [KEV_9B_RESOLVED]
+    assert comparison["models"]["kev-4b"]["backend"] == "kev"
+    assert comparison["outcomes"]["kev-4b_only"] == 1
+    assert comparison["outcomes"]["kev-9b_only"] == 1
+    assert comparison["delta_kev-9b_minus_kev-4b"]["accuracy"] == 0
+    assert comparison["paired_statistics"]["direction"] == "Kev-9B minus Kev-4B"
+    assert set(comparison["server_inference_ms"]) == {"kev-4b", "kev-9b"}
+    assert output.name.startswith("compare_kev-4b_kev-9b_")
+    paired = (output / "paired_predictions.jsonl").read_text()
+    assert '"kev-4b":' in paired and '"kev-9b":' in paired
+    report = (output / "report.html").read_text()
+    assert "Kev-4B <i>versus</i> Kev-9B" in report
+    assert 'data-filter="kev-4b"' in report and 'data-filter="kev-9b"' in report
+    assert KEV_4B_RESOLVED in report and KEV_9B_RESOLVED in report
+    for path in (first, second):
+        metrics = json.loads((path / "metrics.json").read_text())
+        assert metrics["backend"] == "kev"
+
+
+def test_comparison_rejects_duplicate_backend_model(tmp_path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    _write_kev_variant(first, KEV_9B_RESOLVED, [_row(1, "positive", "kev")])
+    _write_kev_variant(second, KEV_9B_RESOLVED, [_row(1, "positive", "kev")])
+    with pytest.raises(ValueError, match="different backends"):
+        compare_runs(first, second, tmp_path / "results", split_path=None)
+
+
+def test_comparison_disambiguates_same_basename_revisions(tmp_path):
+    import hashlib
+    import re
+    first, second = tmp_path / "first", tmp_path / "second"
+    resolved_a = KEV_9B_RESOLVED.replace("2629c06a5aeb0feb3b9783bafed17ed8f39ecf5c", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    resolved_b = KEV_9B_RESOLVED.replace("2629c06a5aeb0feb3b9783bafed17ed8f39ecf5c", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    _write_kev_variant(first, resolved_a, [_row(1, "positive", "kev")])
+    _write_kev_variant(second, resolved_b, [_row(1, "positive", "kev")])
+    output = compare_runs(first, second, tmp_path / "results", split_path=None)
+    comparison = json.loads((output / "comparison.json").read_text())
+    names = comparison["backends"]
+    assert len(set(names)) == 2
+    assert all(name.startswith("kev-9b-") for name in names)
+    assert all(re.fullmatch(r"[a-z0-9-]+", name) for name in names)
+    expected = {
+        f"kev-9b-{hashlib.sha256(resolved.encode('utf-8')).hexdigest()[:7]}"
+        for resolved in (resolved_a, resolved_b)
+    }
+    assert set(names) == expected
+    report = (output / "report.html").read_text()
+    assert resolved_a in report and resolved_b in report

@@ -7,6 +7,7 @@ import pytest
 
 from darija_eval.backends.base import PermanentBackendError
 from darija_eval.backends.kev import (
+    BASE_REPO,
     BASE_REVISION,
     MODEL_IDENTIFIER,
     KevBackend,
@@ -121,11 +122,11 @@ def test_missing_or_wrong_schema_fingerprint_is_rejected(fingerprint):
 @pytest.mark.parametrize(
     ("meta_base", "meta_revision", "expected"),
     [
-        ("Qwen/Qwen3.5-4B-Base", BASE_REVISION, True),
-        ("Qwen/Qwen3.5-4B-Base", "1001bb4d", True),
-        ("Qwen/Qwen3.5-4B-Base", "deadbeef", False),
-        ("Qwen/Qwen3.5-4B-Base", "", False),
-        ("Qwen/Qwen3.5-4B-Base", None, False),
+        (BASE_REPO, BASE_REVISION, True),
+        (BASE_REPO, BASE_REVISION[:8], True),
+        (BASE_REPO, "deadbeef", False),
+        (BASE_REPO, "", False),
+        (BASE_REPO, None, False),
         ("other/base", BASE_REVISION, False),
         (None, BASE_REVISION, False),
     ],

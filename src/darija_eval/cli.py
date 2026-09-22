@@ -156,7 +156,7 @@ def compare(
     second_run: Path = typer.Argument(..., exists=True, file_okay=False),
     third_run: Path | None = typer.Argument(None, exists=True, file_okay=False),
 ) -> None:
-    """Compare two or three eval runs from distinct backends (jev, laya, kev)."""
+    """Compare two or three eval runs from distinct backends (jev, laya, kev) or distinct kev model variants (e.g. kev-4b vs kev-9b); identical backend-and-model pairs are rejected."""
     try:
         output = compare_runs(first_run, second_run, third_run=third_run)
     except ValueError as error:

@@ -1,78 +1,127 @@
-# Jev vs Laya: The At-Home Darija Showdown
+# Jev vs Kev vs Laya — Darija Sentiment Benchmark
 
-Can an open-weight model you control match a hosted AI service? This reproducible
-zero-shot benchmark pits TypeSafe Jev against self-hosted Laya on informal Moroccan
-Darija sentiment—across Arabic script and Arabizi, with `positive`, `neutral`, and
-`negative` labels. No model is trained or fine-tuned.
+Can a self-hosted open-weight model match a hosted AI service on informal
+Moroccan Darija? This reproducible, zero-shot benchmark pits TypeSafe **Jev**
+(hosted API) against self-hosted **Kev-9B** and **Laya** (both on Modal GPUs)
+on Arabic-script and Arabizi reviews. No model is trained or fine-tuned.
 
-## Setup
+## Results at a glance
+
+171 paired reviews from the frozen eval split (Arabic N=127, Arabizi N=44).
+Same reviews, same labels, same schema for all three systems.
+
+| Model | Accuracy (95% CI) | Macro F1 | Arabic | Arabizi |
+|---|---|---|---|---|
+| **Jev** `jev-1.13.0` | **79.5%** (72.9–84.9) | 71.7% | 84.3% | 65.9% |
+| **Kev-9B** `kev-9b` + Qwen3.5-9B | 71.9% (64.8–78.1) | 61.1% | 78.0% | 54.5% |
+| **Laya** `multilingual` | 53.8% (46.3–61.1) | 50.0% | 60.6% | 34.1% |
+| Always-positive reference | 53.8% | — | — | — |
+
+```text
+Jev  ████████████████░░░░  79.5%
+Kev  ██████████████░░░░░░  71.9%
+Laya ███████████░░░░░░░░░  53.8%
+```
+
+Head-to-head gaps (paired bootstrap 95% CI, McNemar exact p):
+
+| Pair | Gap | 95% CI | p |
+|---|---|---|---|
+| Kev − Jev | −7.6 pp | −12.9 to −2.3 | 0.019 |
+| Laya − Jev | −25.7 pp | −33.9 to −17.5 | 6.2e-08 |
+| Laya − Kev | −18.1 pp | −26.3 to −9.4 | 1.9e-04 |
+
+**Takeaways:**
+
+- **Jev wins overall**, and the gap to Kev is supported but modest (−7.6 pp).
+- **Laya ties the always-positive baseline (53.8%)** — not viable for this task as configured.
+- **Arabizi is the hard part for everyone**: −18 pp (Jev), −23 pp (Kev), −27 pp (Laya) vs Arabic script.
+- **Neutral is the weak class**: F1 50.0 / 35.0 / 33.3 for Jev / Kev / Laya.
+- **Jev confidence is actionable**: ≥0.80 → 90.2% accuracy at 65.5% coverage;
+  ≥0.95 → 95.8% at 41.5% coverage. Kev tracks closely; Laya is poorly calibrated (ECE 0.23 vs 0.07).
+
+> Full interactive report with per-review error explorer:
+> [`results/compare_jev_kev_laya_20260922_105535_729323/report.html`](results/compare_jev_kev_laya_20260922_105535_729323/report.html)
+> (clone the repo and open it in a browser — GitHub does not render local HTML).
+> Machine-readable results: `comparison.json`, `paired_predictions.jsonl` in the same directory.
+
+## How it works
+
+- **Data**: `test` split of
+  [`ohidaoui/darija-reviews`](https://huggingface.co/datasets/ohidaoui/darija-reviews).
+  Source has no row ID, so source row indices are stable IDs. First load freezes a
+  deterministic seed-42 split under `data/splits/`: 80% dev, 20% eval, stratified
+  by sentiment and writing style when possible.
+- **Labels**: `positive` / `neutral` / `negative`. The four rows labeled
+  `negative ` (trailing space) are normalized to `negative`; any other unknown,
+  blank, or null label stops the run.
+- **Shared schema v2** for all backends; version/content changes invalidate cache
+  keys. Endpoints receive only the `review` string — never labels, style, or topic.
+- **Stats**: accuracy with 95% Wilson interval; paired sentiment/style-stratified
+  bootstrap intervals (5,000 resamples, seed 42) plus exact McNemar tests for
+  pairwise gaps. Exploratory, conditional on this dataset — no adjustment for
+  multiple comparisons, no label-uncertainty or shift modeling.
+- **Calibration**: ECE (10 equal-width bins), multiclass Brier (range 0–2),
+  log-loss, and thresholded selective-accuracy tables with accepted counts.
+- **Latency honesty**: recorded round-trip times mix infrastructure, queueing, and
+  cached rows — not a controlled speed test. GPU-only inference is reported
+  separately where available (Kev p50/p95 84/109 ms, Laya 57/140 ms).
+
+See [evaluation reference and review protocol](docs/evaluation.md) for label
+handling and the rules for future experiments — including not tuning on the
+already-inspected eval results.
+
+## Reproduce
 
 ```bash
 uv sync
 cp .env.example .env
 # Put the keys in .env, or export them in the shell:
 export TYPESAFE_API_KEY="..."
-export HF_TOKEN="..."  # authenticates dataset and Laya model downloads
+export HF_TOKEN="..."  # authenticates dataset and model downloads
 export LAYA_ENDPOINT_URL="https://...modal.run"
 export KEV_ENDPOINT_URL="https://...modal.run"
 ```
 
-The CLI loads these variables from `.env`. The checked-in `.env.example` points to
-the deployed Laya endpoint but contains no credentials.
+The CLI loads `.env` (so `HF_TOKEN` authenticates Hugging Face downloads).
+`.env.example` points at the deployed endpoints but contains no credentials.
 
-The benchmark loads the `test` split of
-[`ohidaoui/darija-reviews`](https://huggingface.co/datasets/ohidaoui/darija-reviews).
-The source dataset has no row ID, so source row indices are used as stable IDs.
-The first data load freezes a deterministic seed-42 split under `data/splits/`:
-80% dev and 20% eval, stratified by normalized sentiment and writing style when
-possible.
+### Deploy Laya on Modal
 
-The dataset currently contains four raw labels. The four rows labeled `negative `
-with a trailing space are explicitly normalized to `negative`. Any other unknown,
-blank, or null label stops the run.
+One multilingual checkpoint serves both Arabic-script Darija and Arabizi, so the
+writing-style comparison stays meaningful. Weights and source revision are pinned;
+the service runs on one L4 with scale-to-zero.
 
-## Deploy Laya on Modal
-
-The deployment uses the repository's multilingual checkpoint directly for both
-Arabic-script Darija and Arabizi. Keeping one checkpoint makes the writing-style
-comparison meaningful. The weights and source revision are pinned, and the service
-runs on one L4 with scale-to-zero behavior.
-
-Create a Modal secret named `hf-secret` containing `HF_TOKEN`, then run:
+Create a Modal secret named `hf-secret` containing `HF_TOKEN`, then:
 
 ```bash
 uv run modal run -m darija_eval.modal_laya::download_model
 uv run modal deploy -m darija_eval.modal_laya --strategy recreate
 ```
 
-The first command stores only the multilingual checkpoint in a Modal Volume. Put
-the deployed `predict` URL in `LAYA_ENDPOINT_URL`. The endpoint accepts only a
-`review` string; sentiment labels, writing style, and topic are never sent to Laya.
+Put the deployed `predict` URL in `LAYA_ENDPOINT_URL`. Redeploy Laya after any
+schema change.
 
-Schema v2 shortens the criteria, explicitly references `review`, and no longer treats
-unfamiliar language as neutral. It is shared by Jev and Laya; redeploy Laya after a
-schema change. Version and question-content changes invalidate prediction cache keys.
-Old v1 runs remain readable, but cannot be paired with v2 runs by `compare`.
-No temperature, decision thresholds, transliteration or option-order ensemble has
-been fitted or enabled; prompt changes alone do not establish an accuracy gain.
+### Deploy Kev on Modal
 
-## Deploy Kev on Modal
-
-Kev runs as a separate Modal app because it needs Python 3.12 and a newer
-Transformers range than the Laya image. The deployment pins the `kev-4b`
-adapter, its Qwen3.5-4B base revision, and the KEV source revision, and serves
-the checkpoint-carried temperature on one L4 with scale-to-zero behavior.
+Kev runs as a separate Modal app (Python 3.12, newer Transformers than the Laya
+image). The deployment pins the `kev-9b` adapter, its Qwen3.5-9B base revision,
+and the KEV source revision, serving the checkpoint-carried temperature in FP32
+on one L40S with scale-to-zero. The 9B checkpoint exceeds L4 memory with the
+existing FP32 loader.
 
 ```bash
 uv run modal run -m darija_eval.modal_kev::download_model
 uv run modal deploy -m darija_eval.modal_kev --strategy recreate
 ```
 
-Put the deployed `predict` URL in `KEV_ENDPOINT_URL`. Like Laya, the endpoint
-accepts only a `review` string and returns the label distribution, except it
-also returns a verifiable schema-content hash that the client requires.
+Put the deployed `predict` URL in `KEV_ENDPOINT_URL`. Unlike Laya, Kev also
+returns a verifiable schema-content hash that the client requires. The endpoint
+URL and `--backend kev` stay unchanged across checkpoints; the model identity
+changes, so 4B cache entries are not reused for 9B (historical 4B results and
+weights remain intact).
 
-## Commands
+### Commands
 
 ```bash
 uv run darija-eval inspect
@@ -90,79 +139,50 @@ uv run darija-eval reanalyse results/jev_eval_<timestamp>
 ```
 
 Omit `--backend` to use Jev. `compare` accepts two or three eval-run directories
-from distinct backends, in any order (the backend is named `laya`, not `yala`).
-Run the full frozen eval once per backend first; demo/dev runs cannot be compared.
-The command rejects failed or mismatched runs, recomputes metrics from prediction
-records, and aligns every backend by ID. It checks IDs against the local frozen
-split and identifies limited samples. Three-run reports include all three pairwise
-comparisons, a shared scoreboard, and an all-model error explorer. Each comparison
-writes `comparison.json`, `paired_predictions.jsonl`, and standalone `report.html`.
-`reanalyse` creates updated metrics and HTML from saved evidence without contacting
-any model; original files stay intact.
+from distinct backends or distinct resolved models of the same backend, in any
+order. A saved KEV-4B run and a new KEV-9B run display as separate model
+variants; identical backend/model pairs are rejected. Run the full frozen eval
+for each model first; demo/dev runs cannot be compared.
 
-When provenance is present, reanalysis checks selected IDs and review/reference
-fingerprints, schema fingerprints, and manifest/metrics agreement before scoring.
-Comparisons also reject recorded dataset or split fingerprints that conflict with
-each other or the local frozen split. Reanalysis preserves the original manifest.
-Legacy runs without this metadata remain readable, but missing provenance cannot
-be independently verified.
+To compare saved 4B predictions with a new 9B evaluation:
 
-Use `--concurrency` (default 5) and `--max-retries` (default 3) on prediction
-commands to adjust remote API behavior. Successful calls are cached under
-`data/cache/`; the cache key includes backend, requested model, exact review text,
-schema version, and a content hash of the question. Interrupted runs therefore reuse
-completed predictions. Older caches without content hashes remain on disk but cannot
-be safely reused by the new keys; use `reanalyse` to update old reports without calls.
-`jev-latest` is a mutable service alias: inspect resolved model IDs when comparing
-runs across dates. The deployed Laya endpoint verifies model/version identity;
-historical responses do not establish a content-hash proof of the remote schema.
-Malformed or invalid cache entries are treated as misses and replaced only after a
-successful fresh prediction. Invalid fresh predictions are recorded as API failures,
-never cached or scored. Missing probabilities remain supported: label-based metrics
-are still computed, while calibration metrics are skipped.
+```bash
+uv run darija-eval eval --backend kev
+uv run darija-eval compare \
+  results/kev_eval_20260922_101711_853681 \
+  results/kev_eval_<new_9b_timestamp>
+```
 
-Each run writes a timestamped directory under `results/` with `predictions.jsonl`,
-`failures.jsonl`, `api_failures.jsonl`, `metrics.json`, `summary.md`, and a
-standalone `report.html`. Open `report.html` directly in a browser for the visual
-summary and interactive error explorer.
-New inference runs also record `manifest.json` before calls begin, with exact IDs,
-dataset/selection and schema fingerprints, split scope, and concurrency.
-`failures.jsonl` contains model misclassifications; transport/authentication/schema
-failures are counted separately in `api_failures.jsonl` and excluded from quality
-metrics. Probability-dependent calibration metrics are emitted only when the backend
-supplies a complete class distribution. Laya exposes its raw softmax distribution,
-which this benchmark records without post-hoc calibration. The comparison report
-also separates Laya GPU inference time from client round-trip latency.
+`reanalyse` rebuilds metrics and HTML from saved evidence without contacting any
+model; original files stay intact.
+
+### Caching, provenance, artifacts
+
+- `--concurrency` (default 5) and `--max-retries` (default 3) tune remote calls.
+  Successful calls are cached under `data/cache/`; keys include backend, model,
+  exact review text, schema version, and question-content hash, so interrupted
+  runs resume. Malformed cache entries are treated as misses; invalid fresh
+  predictions are recorded as API failures, never cached or scored.
+- `jev-latest` is a mutable service alias — inspect resolved model IDs when
+  comparing runs across dates.
+- Each run writes a timestamped directory under `results/` with
+  `predictions.jsonl`, `failures.jsonl`, `api_failures.jsonl`, `metrics.json`,
+  `manifest.json`, `summary.md`, and standalone `report.html`. Comparisons add
+  `comparison.json` and `paired_predictions.jsonl`.
+- Reanalysis and comparison verify ID, review/reference, schema, and
+  dataset/split fingerprints where provenance is present; legacy runs without
+  metadata remain readable but unverifiable.
 
 **Keep the frozen 20% eval split untouched during prompt and schema development.**
-Use `demo` and `dev-eval` while iterating. All three backends share the same dataset,
-schema, evaluation, metrics, cache, and artifact pipeline.
+Use `demo` and `dev-eval` while iterating. All three backends share the same
+dataset, schema, evaluation, metrics, cache, and artifact pipeline.
 
-## Reading the analysis
+## Limitations
 
-Accuracy includes a 95% Wilson interval. A descriptive majority-label reference
-shows how much accuracy can come from class imbalance; it is explicitly selected
-from the scored sample, not claimed as a dev-selected model. Macro F1 always uses
-all three labels, including absent classes. Style/topic groups show support and
-uncertainty; their differences do not isolate the effect of transliteration.
-
-Comparison reports include a paired, sentiment/style-stratified bootstrap interval
-(5,000 resamples, seed 42) for accuracy and macro-F1 differences, plus an exact
-McNemar test on discordant pairs. These are exploratory, conditional on this dataset;
-they do not capture uncertain annotations, repeated model sampling, or dataset shift.
-Three-backend reports compute these statistics for every pair on the same matched
-sample; intervals and p-values are not adjusted for multiple comparisons.
-Confidence tables show accepted counts and accuracy intervals so a tiny high-confidence
-subset is not mistaken for demonstrated safety. ECE uses ten equal-width bins;
-multiclass Brier is the sum over classes (range 0–2). Cached latency is historical;
-only explicitly fresh requests enter current-run latency statistics.
-
-Individual reports also include a predicted-class reliability diagram and a
-tie-aware risk–coverage curve with AURC and accuracy at 50%/80% coverage. Equal-confidence
-groups are accepted whole; actual coverage is shown when it exceeds the target.
-A prominent reference-label caveat includes full-source duplicate audit counts for
-new runs; historical runs without embedded audit data show qualified disclosures.
-
-See [evaluation reference and review protocol](docs/evaluation.md) for reference-label
-handling and rules for future experiments. Do not relabel an error merely because a
-model disagrees, or tune prompts/thresholds on the already inspected eval results.
+- N=171 (Arabizi N=44): subgroup intervals are wide; style groups mix different
+  reviews and topics, so gaps do not isolate transliteration effects.
+- Reference labels are dataset annotations, not independently adjudicated.
+- These saved predictions have been inspected — further prompt development
+  belongs on dev, with a new independent test set for confirmatory claims.
+- No temperature, threshold, transliteration, or ensemble fitting; prompt changes
+  alone do not establish a gain.

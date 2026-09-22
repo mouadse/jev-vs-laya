@@ -1,0 +1,1965 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Improving the Darija Sentiment System · Strategy &amp; Benchmark Report</title>
+  <style>
+    /* --- CSS Reset & Custom Properties --- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --paper: #f4f0e5;
+      --paper-card: #fbf9f4;
+      --paper-2: #eae3d2;
+      --paper-dark: #dfd6c0;
+      --ink: #17221d;
+      --ink-soft: #2b3932;
+      --muted: #5e6b63;
+      --muted-light: #85928a;
+      --line: rgba(23, 34, 29, 0.16);
+      --line-strong: rgba(23, 34, 29, 0.38);
+
+      --jev: #c44b37;
+      --jev-bg: rgba(196, 75, 55, 0.09);
+      --jev-border: rgba(196, 75, 55, 0.28);
+
+      --laya: #2e7458;
+      --laya-bg: rgba(46, 116, 88, 0.09);
+      --laya-border: rgba(46, 116, 88, 0.28);
+
+      --kev: #2a6f97;
+      --kev-bg: rgba(42, 111, 151, 0.09);
+      --kev-border: rgba(42, 111, 151, 0.28);
+
+      --acid: #dce871;
+      --acid-ink: #1b2607;
+      --amber: #b45309;
+      --amber-bg: rgba(180, 83, 9, 0.09);
+
+      --serif: Georgia, "Times New Roman", "Iowan Old Style", "Apple Garamond", serif;
+      --sans: "Trebuchet MS", "Gill Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --mono: ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Courier New", monospace;
+
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 3px rgba(23, 34, 29, 0.05);
+      --shadow-md: 0 4px 14px rgba(23, 34, 29, 0.08);
+
+      --wrap-width: min(1180px, calc(100% - 44px));
+    }
+
+    [data-theme="dark"] {
+      --paper: #121815;
+      --paper-card: #18221c;
+      --paper-2: #212c26;
+      --paper-dark: #293830;
+      --ink: #ece7db;
+      --ink-soft: #c8d3cc;
+      --muted: #8e9c93;
+      --muted-light: #6a776f;
+      --line: rgba(236, 231, 219, 0.15);
+      --line-strong: rgba(236, 231, 219, 0.32);
+
+      --jev: #e0624d;
+      --jev-bg: rgba(224, 98, 77, 0.15);
+      --jev-border: rgba(224, 98, 77, 0.35);
+
+      --laya: #3da881;
+      --laya-bg: rgba(61, 168, 129, 0.15);
+      --laya-border: rgba(61, 168, 129, 0.35);
+
+      --kev: #4ba3e3;
+      --kev-bg: rgba(75, 163, 227, 0.15);
+      --kev-border: rgba(75, 163, 227, 0.35);
+
+      --acid: #e2ee75;
+      --acid-ink: #121805;
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.15);
+
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+    }
+
+    /* --- Base Elements --- */
+    html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+      transition: background-color 0.2s ease, color 0.2s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: var(--line-strong);
+      text-underline-offset: 3px;
+      transition: color 0.15s ease, text-decoration-color 0.15s ease;
+    }
+    a:hover {
+      color: var(--jev);
+      text-decoration-color: var(--jev);
+    }
+
+    code, pre { font-family: var(--mono); }
+    code {
+      font-size: 0.88em;
+      background: var(--paper-2);
+      padding: 0.15em 0.42em;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+    }
+    pre code { background: none; padding: 0; border: none; font-size: 0.9em; }
+
+    .wrap { width: var(--wrap-width); margin-inline: auto; }
+
+    /* --- Reading Progress Bar --- */
+    #reading-progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--jev), var(--laya), var(--acid));
+      z-index: 1000;
+      transition: width 0.1s linear;
+    }
+
+    /* --- Top Navigation Bar --- */
+    .top-nav {
+      position: sticky;
+      top: 0;
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+      z-index: 900;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 58px;
+      gap: 16px;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .nav-badge {
+      font-family: var(--sans);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: var(--acid);
+      color: var(--acid-ink);
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      list-style: none;
+      overflow-x: auto;
+      padding-block: 4px;
+      scrollbar-width: none;
+    }
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-links a {
+      font-size: 0.8rem;
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 99px;
+      color: var(--muted);
+      font-weight: 600;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .nav-links a:hover {
+      color: var(--ink);
+      background: var(--paper-2);
+    }
+    .nav-links a.active {
+      color: var(--ink);
+      background: var(--paper-dark);
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      color: var(--ink);
+      transition: all 0.15s ease;
+    }
+    .btn-icon:hover {
+      background: var(--paper-2);
+      border-color: var(--line-strong);
+    }
+    .btn-cli {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 99px;
+      border: 1px solid var(--line);
+      background: var(--paper-2);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--ink);
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .btn-cli:hover {
+      background: var(--paper-dark);
+      border-color: var(--line-strong);
+    }
+
+    /* --- Hero Header --- */
+    .hero {
+      padding-top: clamp(40px, 6vw, 68px);
+      padding-bottom: clamp(36px, 5vw, 56px);
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .kicker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 20px;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .kicker .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--jev); }
+    .hero-title {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: clamp(2.8rem, 7vw, 5.4rem);
+      line-height: 0.95;
+      letter-spacing: -0.045em;
+      margin-bottom: 24px;
+      max-width: 950px;
+    }
+    .hero-lede {
+      font-family: var(--serif);
+      font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+      line-height: 1.4;
+      color: var(--ink-soft);
+      max-width: 820px;
+      margin-bottom: 34px;
+    }
+
+    /* --- Meta Rail --- */
+    .meta-rail {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px 24px;
+      padding-block: 18px;
+      border-block: 1px solid var(--line);
+      font-size: 0.8rem;
+    }
+    .meta-item { display: grid; gap: 3px; }
+    .meta-item span {
+      text-transform: uppercase;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .meta-item strong {
+      font-family: var(--mono);
+      font-size: 0.86rem;
+      color: var(--ink);
+    }
+
+    /* --- Recommendation Banner --- */
+    .rec-box {
+      margin-top: 36px;
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--laya);
+      border-radius: var(--radius-md);
+      padding: clamp(24px, 4vw, 36px);
+      box-shadow: var(--shadow-sm);
+    }
+    .rec-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    .rec-head h2 {
+      font-family: var(--serif);
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .rec-tag {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+      color: var(--laya);
+      background: var(--laya-bg);
+      border: 1px solid var(--laya-border);
+      padding: 3px 10px;
+      border-radius: 99px;
+    }
+    .rec-body p {
+      margin-bottom: 16px;
+      font-size: 1.02rem;
+    }
+    .rec-body p:last-child { margin-bottom: 0; }
+    .rec-highlight {
+      background: var(--paper-2);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      margin-block: 16px;
+      font-size: 0.95rem;
+      border-left: 3px solid var(--acid-ink);
+    }
+    .rec-highlight strong { color: var(--ink); }
+
+    /* --- Section Headings --- */
+    .section {
+      padding-block: clamp(48px, 7vw, 90px);
+      border-bottom: 1px solid var(--line);
+    }
+    .section-header {
+      margin-bottom: 36px;
+    }
+    .section-num {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 800;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .section-num span {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--paper-2);
+      border: 1px solid var(--line-strong);
+      font-size: 0.65rem;
+      color: var(--ink);
+    }
+    .section-title {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: clamp(2rem, 4.5vw, 3.2rem);
+      letter-spacing: -0.035em;
+      line-height: 1.08;
+      margin-bottom: 12px;
+    }
+    .section-desc {
+      color: var(--muted);
+      font-size: 1rem;
+      max-width: 720px;
+    }
+
+    /* --- Scorecard Grid --- */
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 36px;
+    }
+    .score-card {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 22px 20px;
+      display: grid;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .score-card.jev-lead::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--jev);
+    }
+    .score-card.accent::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--acid);
+    }
+    .score-label {
+      text-transform: uppercase;
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      font-weight: 800;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    .score-value {
+      font-family: var(--serif);
+      font-size: clamp(2.2rem, 3.8vw, 3.2rem);
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+    .score-delta {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--laya);
+    }
+    .score-delta.neg { color: var(--jev); }
+    .score-detail {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.4;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+
+    /* --- Tables --- */
+    .table-container {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow-sm);
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      text-align: left;
+    }
+    table.data-table th, table.data-table td {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: middle;
+    }
+    table.data-table thead th {
+      background: var(--paper-2);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+      color: var(--muted);
+      border-bottom: 2px solid var(--line-strong);
+    }
+    table.data-table tbody tr:last-child td,
+    table.data-table tbody tr:last-child th {
+      border-bottom: none;
+    }
+    table.data-table tbody tr:hover {
+      background: rgba(23, 34, 29, 0.02);
+    }
+    [data-theme="dark"] table.data-table tbody tr:hover {
+      background: rgba(236, 231, 219, 0.03);
+    }
+    .num-col { text-align: right; font-variant-numeric: tabular-nums; }
+    .winner-val {
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .subtext {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-weight: normal;
+      margin-top: 2px;
+    }
+    .bar-cell {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .mini-bar {
+      width: 70px;
+      height: 6px;
+      background: var(--paper-2);
+      border-radius: 99px;
+      overflow: hidden;
+      display: inline-block;
+    }
+    .mini-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+    }
+    .mini-bar-fill.jev { background: var(--jev); }
+    .mini-bar-fill.laya { background: var(--laya); }
+
+    /* --- Visual Comparison Panels --- */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 36px;
+    }
+    .panel-card {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .panel-card h3 {
+      font-family: var(--serif);
+      font-size: 1.3rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .panel-card p {
+      font-size: 0.92rem;
+      color: var(--ink-soft);
+    }
+
+    /* --- Oracle / Quadrants Visualization --- */
+    .quadrant-box {
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      margin-block: 16px;
+    }
+    .quadrant-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .quadrant-cell {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      display: grid;
+      gap: 4px;
+    }
+    .quadrant-cell .count {
+      font-family: var(--serif);
+      font-size: 1.8rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .quadrant-cell .desc {
+      font-size: 0.76rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+    }
+    .quadrant-cell.both-win .count { color: var(--laya); }
+    .quadrant-cell.jev-only .count { color: var(--jev); }
+    .quadrant-cell.laya-only .count { color: var(--kev); }
+    .quadrant-cell.both-loss .count { color: var(--muted); }
+
+    /* --- Stacked Outcomes Bar --- */
+    .stacked-bar-container {
+      margin-top: 16px;
+    }
+    .stacked-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .stacked-bar {
+      display: flex;
+      height: 24px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .stacked-segment {
+      height: 100%;
+      position: relative;
+      transition: opacity 0.15s ease;
+    }
+    .stacked-segment:hover { opacity: 0.85; }
+    .seg-both { background: var(--laya); width: 47.37%; }
+    .seg-jev { background: var(--jev); width: 32.16%; }
+    .seg-laya { background: var(--kev); width: 6.43%; }
+    .seg-neither { background: var(--paper-dark); width: 14.04%; }
+
+    .stacked-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 20px;
+      margin-top: 10px;
+      font-size: 0.78rem;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-chip { width: 10px; height: 10px; border-radius: 2px; }
+
+    /* --- Caveats & Callouts --- */
+    .callout {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      margin-block: 24px;
+      font-size: 0.92rem;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      background: var(--paper-card);
+    }
+    .callout-icon {
+      font-size: 1.25rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .callout-content h4 {
+      font-family: var(--serif);
+      font-size: 1.1rem;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .callout.warning {
+      border-left: 6px solid var(--amber);
+      background: var(--amber-bg);
+    }
+    .callout.warning h4 { color: var(--amber); }
+    .callout.info {
+      border-left: 6px solid var(--kev);
+      background: var(--kev-bg);
+    }
+    .callout.info h4 { color: var(--kev); }
+
+    /* --- Architecture Cards (Section 2) --- */
+    .arch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    .arch-card {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .arch-card.kev { border-top: 5px solid var(--kev); }
+    .arch-card.laya { border-top: 5px solid var(--laya); }
+    .arch-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    .arch-header h3 {
+      font-family: var(--serif);
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .arch-header .pill {
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+    }
+    .arch-card ul {
+      padding-left: 20px;
+      display: grid;
+      gap: 10px;
+      font-size: 0.92rem;
+    }
+
+    /* --- Experiments & Priorities (Section 4) --- */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .filter-btn {
+      appearance: none;
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      padding: 7px 16px;
+      border-radius: 99px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .filter-btn:hover {
+      background: var(--paper-2);
+      color: var(--ink);
+    }
+    .filter-btn.active {
+      background: var(--ink);
+      color: var(--paper);
+      border-color: var(--ink);
+    }
+    .filter-btn .badge-count {
+      background: rgba(23, 34, 29, 0.1);
+      font-size: 0.68rem;
+      padding: 1px 6px;
+      border-radius: 99px;
+    }
+    .filter-btn.active .badge-count {
+      background: var(--acid);
+      color: var(--acid-ink);
+    }
+
+    .exp-list {
+      display: grid;
+      gap: 24px;
+    }
+    .exp-card {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: clamp(24px, 3.5vw, 36px);
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .exp-card:hover {
+      box-shadow: var(--shadow-md);
+    }
+    .exp-card-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 14px;
+    }
+    .exp-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .exp-badge.p1 { background: var(--jev-bg); color: var(--jev); border: 1px solid var(--jev-border); }
+    .exp-badge.p2 { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber); }
+    .exp-badge.p3 { background: var(--kev-bg); color: var(--kev); border: 1px solid var(--kev-border); }
+    .exp-badge.p4 { background: var(--laya-bg); color: var(--laya); border: 1px solid var(--laya-border); }
+    .exp-badge.p5 { background: var(--paper-2); color: var(--ink); border: 1px solid var(--line-strong); }
+
+    .exp-title {
+      font-family: var(--serif);
+      font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .exp-content p {
+      margin-bottom: 14px;
+      font-size: 0.95rem;
+    }
+    .exp-content p:last-child { margin-bottom: 0; }
+    .exp-subhead {
+      font-family: var(--serif);
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-top: 18px;
+      margin-bottom: 8px;
+    }
+
+    /* --- Code Snippets & Command Boxes --- */
+    .code-box {
+      position: relative;
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      margin-block: 16px;
+      overflow: hidden;
+    }
+    .code-box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 14px;
+      background: var(--paper-dark);
+      border-bottom: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .code-box pre {
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .copy-btn {
+      appearance: none;
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .copy-btn:hover {
+      background: var(--paper);
+      border-color: var(--line-strong);
+    }
+    .copy-btn.copied {
+      background: var(--acid);
+      color: var(--acid-ink);
+      border-color: var(--acid-ink);
+    }
+
+    /* --- Checksum Grid --- */
+    .checksum-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+      margin-block: 16px;
+    }
+    .checksum-card {
+      background: var(--paper-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .checksum-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .checksum-val {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      word-break: break-all;
+      background: var(--paper-2);
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+
+    /* --- Footer --- */
+    .footer {
+      padding-block: 60px 40px;
+      border-top: 2px solid var(--line-strong);
+      margin-top: 40px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 30px;
+      margin-bottom: 40px;
+    }
+    .footer-col h4 {
+      font-family: var(--serif);
+      font-size: 1.1rem;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+    .footer-col ul {
+      list-style: none;
+      display: grid;
+      gap: 8px;
+    }
+    .footer-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* --- Responsive & Utilities --- */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .meta-rail { grid-template-columns: 1fr 1fr; }
+      .score-grid { grid-template-columns: 1fr; }
+      .quadrant-grid { grid-template-columns: 1fr; }
+      .arch-grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff !important; color: #000 !important; }
+      .top-nav, #reading-progress, .filter-bar, .copy-btn, .nav-actions { display: none !important; }
+      .exp-card, .rec-box, .panel-card, .table-container { break-inside: avoid; box-shadow: none !important; border-color: #ccc !important; }
+      a { text-decoration: none !important; color: #000 !important; }
+      .hero-title { font-size: 2.8rem !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="reading-progress" aria-hidden="true"></div>
+
+  <!-- Top Navigation -->
+  <header class="top-nav" role="banner">
+    <div class="wrap nav-inner">
+      <a href="#top" class="nav-brand">
+        DARĪJA / SENTIMENT
+        <span class="nav-badge">Strategy &amp; Plan</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Report navigation">
+        <a href="#recommendation">Recommendation</a>
+        <a href="#evidence">1. Evidence</a>
+        <a href="#repositories">2. Repositories</a>
+        <a href="#trustworthy">3. Integrity</a>
+        <a href="#experiments">4. Experiments</a>
+        <a href="#roadmap">5. Roadmap</a>
+        <a href="#reproducibility">6. Reproduce</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button class="btn-cli" id="copy-cli-nav" title="Copy CLI reproduction command">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Copy CLI</span>
+        </button>
+
+        <button class="btn-icon" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">
+          <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero Section -->
+    <section class="hero wrap">
+      <div class="kicker">
+        <span>Research Proposal</span>
+        <span class="dot"></span>
+        <span>22 September 2026</span>
+        <span class="dot"></span>
+        <span>171 Frozen Eval Rows</span>
+        <span class="dot"></span>
+        <span>Jev vs Laya vs KEV-4B</span>
+      </div>
+
+      <h1 class="hero-title">Improving the Darija sentiment system</h1>
+
+      <p class="hero-lede">
+        <strong>Research date:</strong> 22 September 2026. <strong>Scope:</strong> the current Jev/Laya benchmark, informed by implementation-level reviews of KEV and Laya. This is a proposal, not a claim that new models have been trained or score gains achieved.
+      </p>
+
+      <div class="meta-rail">
+        <div class="meta-item">
+          <span>Target Metric</span>
+          <strong>Macro F1 (3-Class)</strong>
+        </div>
+        <div class="meta-item">
+          <span>Reference to Beat</span>
+          <strong>Jev 1.13.0 (79.53%)</strong>
+        </div>
+        <div class="meta-item">
+          <span>Frozen Eval Support</span>
+          <strong>171 Rows (680 Dev)</strong>
+        </div>
+        <div class="meta-item">
+          <span>Reviewed Commit</span>
+          <strong><code>18e1912</code></strong>
+        </div>
+      </div>
+
+      <!-- Recommendation Card -->
+      <div class="rec-box" id="recommendation">
+        <div class="rec-head">
+          <h2>Recommendation</h2>
+          <span class="rec-tag">Executive Summary</span>
+        </div>
+        <div class="rec-body">
+          <p>
+            <strong>Keep Jev as the reference to beat.</strong> Add KEV-4B as a third backend, measure its unmodified Darija performance, then warm-start a small, supervised Darija adaptation. In parallel, test a bounded set of schema and input variants on development data. Treat multilingual Laya as a lower-cost challenger that needs domain adaptation, rather than expecting an SDK upgrade or calibration alone to close its current quality gap.
+          </p>
+          <div class="rec-highlight">
+            <strong>Key Investment:</strong> The most promising investment is <strong>better domain supervision for neutral sentiment and Arabizi</strong>, followed by controlled training experiments. The repositories provide useful mechanisms; neither establishes a Darija improvement for this project.
+          </div>
+          <p>
+            For this report, <strong>“better score” means higher three-class macro F1</strong>, with accuracy, per-class recall, Arabic/Arabizi results, probability quality, and serving cost reported alongside it. Macro F1 prevents the positive majority from dominating the decision. Keep the existing zero-shot comparison as one track and label supervised/adapted systems as a separate track.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 1: What the current evidence actually says -->
+    <section class="section wrap" id="evidence">
+      <div class="section-header">
+        <div class="section-num"><span>01</span> Baseline Reanalysis</div>
+        <h2 class="section-title">What the current evidence actually says</h2>
+        <p class="section-desc">
+          Recomputed from saved prediction records using the project's validators and paired comparison functions, rather than copied from report summaries.
+        </p>
+      </div>
+
+      <!-- Verified Baseline Narrative -->
+      <div class="panel-card" style="margin-bottom: 28px;">
+        <h3 style="font-size:1.15rem; margin-bottom: 6px;">Verified Baseline Provenance</h3>
+        <ul style="padding-left: 20px; display: grid; gap: 6px; font-size: 0.92rem;">
+          <li><a href="results/jev_eval_20260921_234315_802617/predictions.jsonl"><strong>Jev v2 evidence</strong></a>, resolved model <code>jev-1.13.0</code>.</li>
+          <li><a href="results/laya_eval_20260921_233519_938576/predictions.jsonl"><strong>Laya v2 evidence</strong></a>, multilingual weights <code>1c5edc17a7acd8701df6fc341c0d179f1c62c982</code>, runtime <code>laya==0.3.4</code>.</li>
+          <li>Both cover all <strong>171 frozen eval rows</strong>, with no unaccounted examples or API failures. IDs, text, reference labels, style, topic, schema fingerprint, and recorded dataset/split provenance agree. The <a href="data/splits/seed_42.json">frozen partition</a> contains 680 development rows and 171 evaluation rows.</li>
+        </ul>
+      </div>
+
+      <!-- Top Scorecards -->
+      <div class="score-grid">
+        <div class="score-card jev-lead">
+          <div class="score-label">
+            <span>Accuracy</span>
+            <span class="score-delta">+25.73 pp Jev</span>
+          </div>
+          <div class="score-value">79.53%</div>
+          <div class="score-detail">
+            Jev 136/171 (Wilson CI 72.87–84.90%)<br>
+            Laya 92/171 (Wilson CI 46.33–61.11%)
+          </div>
+        </div>
+
+        <div class="score-card jev-lead">
+          <div class="score-label">
+            <span>Macro F1</span>
+            <span class="score-delta">+0.2183 Jev</span>
+          </div>
+          <div class="score-value">0.7183</div>
+          <div class="score-detail">
+            Jev: 0.7183 · Laya: 0.5000<br>
+            95% Bootstrap CI: 0.1185 to 0.3129
+          </div>
+        </div>
+
+        <div class="score-card jev-lead">
+          <div class="score-label">
+            <span>Expected Calibration Error (ECE)</span>
+            <span class="score-delta">Lower is better</span>
+          </div>
+          <div class="score-value">0.0408</div>
+          <div class="score-detail">
+            Jev: 0.0408 (ten bins)<br>
+            Laya: 0.2275 (overconfident)
+          </div>
+        </div>
+
+        <div class="score-card accent">
+          <div class="score-label">
+            <span>Style Gap (Arabizi − Arabic)</span>
+            <span class="score-delta">Both drop on Arabizi</span>
+          </div>
+          <div class="score-value">-21.4 pp</div>
+          <div class="score-detail">
+            Jev: 85.04% (Arabic) → 63.64% (Arabizi)<br>
+            Laya: 60.63% (Arabic) → 34.09% (Arabizi)
+          </div>
+        </div>
+      </div>
+
+      <!-- Full Comparison Table -->
+      <div class="table-container">
+        <table class="data-table" aria-label="Verified benchmark baseline results">
+          <thead>
+            <tr>
+              <th>Measure</th>
+              <th class="num-col">Jev</th>
+              <th class="num-col">Laya</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <strong>Accuracy</strong>
+                <span class="subtext">171 frozen evaluation rows</span>
+              </td>
+              <td class="num-col winner-val">
+                <div class="bar-cell">
+                  <span><strong>79.53% (136/171)</strong></span>
+                  <div class="mini-bar"><div class="mini-bar-fill jev" style="width: 79.53%"></div></div>
+                </div>
+              </td>
+              <td class="num-col">
+                <div class="bar-cell">
+                  <span>53.80% (92/171)</span>
+                  <div class="mini-bar"><div class="mini-bar-fill laya" style="width: 53.80%"></div></div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>Accuracy, 95% Wilson interval</td>
+              <td class="num-col"><code>72.87–84.90%</code></td>
+              <td class="num-col"><code>46.33–61.11%</code></td>
+            </tr>
+            <tr>
+              <td>
+                <strong>Macro F1</strong>
+                <span class="subtext">Unweighted 3-class mean</span>
+              </td>
+              <td class="num-col winner-val"><strong>0.7183</strong></td>
+              <td class="num-col">0.5000</td>
+            </tr>
+            <tr>
+              <td>Positive F1, support 92</td>
+              <td class="num-col winner-val">0.8791</td>
+              <td class="num-col">0.6667</td>
+            </tr>
+            <tr>
+              <td>Neutral F1, support 25</td>
+              <td class="num-col winner-val">0.5000</td>
+              <td class="num-col">0.3333</td>
+            </tr>
+            <tr>
+              <td>Negative F1, support 54</td>
+              <td class="num-col winner-val">0.7759</td>
+              <td class="num-col">0.5000</td>
+            </tr>
+            <tr>
+              <td>
+                <strong>Arabic accuracy, support 127</strong>
+              </td>
+              <td class="num-col winner-val">
+                <div class="bar-cell">
+                  <span><strong>85.04%</strong></span>
+                  <div class="mini-bar"><div class="mini-bar-fill jev" style="width: 85.04%"></div></div>
+                </div>
+              </td>
+              <td class="num-col">
+                <div class="bar-cell">
+                  <span>60.63%</span>
+                  <div class="mini-bar"><div class="mini-bar-fill laya" style="width: 60.63%"></div></div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <strong>Arabizi accuracy, support 44</strong>
+              </td>
+              <td class="num-col winner-val">
+                <div class="bar-cell">
+                  <span><strong>63.64%</strong></span>
+                  <div class="mini-bar"><div class="mini-bar-fill jev" style="width: 63.64%"></div></div>
+                </div>
+              </td>
+              <td class="num-col">
+                <div class="bar-cell">
+                  <span>34.09%</span>
+                  <div class="mini-bar"><div class="mini-bar-fill laya" style="width: 34.09%"></div></div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>ECE, ten bins; lower is better</td>
+              <td class="num-col winner-val"><strong>0.0408</strong></td>
+              <td class="num-col">0.2275</td>
+            </tr>
+            <tr>
+              <td>Multiclass Brier, range 0–2; lower is better</td>
+              <td class="num-col winner-val"><strong>0.3198</strong></td>
+              <td class="num-col">0.6199</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Paired Advantage & Bootstrap Summary -->
+      <p style="margin-bottom: 24px; font-size: 0.95rem; color: var(--ink-soft);">
+        Jev's paired advantage is <strong>25.73 percentage points of accuracy</strong>, with a 95% stratified bootstrap interval of <strong>17.54–33.92 points</strong>. Its macro-F1 advantage is <strong>0.2183</strong>, interval <strong>0.1185–0.3129</strong>. These are exploratory, dataset-conditional intervals from 5,000 paired resamples, not guarantees under new labels, repeated model sampling, or distribution shift. The observed positive-majority reference is 53.80% accuracy; Laya equals that accuracy while producing a different mix of labels.
+      </p>
+
+      <!-- 3 Key Investigation Areas & Complementarity -->
+      <div class="compare-grid">
+        <div class="panel-card">
+          <h3>1. Neutral Interpretation</h3>
+          <p>
+            Jev recovers only <strong>11 of 25 neutral references</strong>. The other 14 split equally between positive and negative.
+          </p>
+          <p>
+            Laya has a different failure: it predicts neutral 53 times, only 13 correctly—a <strong>24.53% precision</strong>. One shared “increase neutral” rule would therefore be inappropriate.
+          </p>
+        </div>
+
+        <div class="panel-card">
+          <h3>2. The Arabizi Performance Gap</h3>
+          <p>
+            Jev makes <strong>16 errors among 44 Arabizi reviews</strong>, versus 19 among 127 Arabic reviews.
+          </p>
+          <p>
+            This identifies a useful investigation area, but the two groups contain different reviews and class/topic mixtures. It does not prove transliteration will fix the gap.
+          </p>
+        </div>
+
+        <div class="panel-card">
+          <h3>3. Complementarity is Limited</h3>
+          <p>
+            <strong>81 examples</strong> are correct for both models, <strong>55</strong> only for Jev, <strong>11</strong> only for Laya, and <strong>24</strong> for neither.
+          </p>
+
+          <div class="stacked-bar-container">
+            <div class="stacked-bar-label">
+              <span>Paired Outcome Breakdown (N=171)</span>
+              <span>Oracle Ceiling: 85.96% (147/171)</span>
+            </div>
+            <div class="stacked-bar">
+              <div class="stacked-segment seg-both" title="Both correct: 81 (47.4%)"></div>
+              <div class="stacked-segment seg-jev" title="Jev only: 55 (32.2%)"></div>
+              <div class="stacked-segment seg-laya" title="Laya only: 11 (6.4%)"></div>
+              <div class="stacked-segment seg-neither" title="Both wrong: 24 (14.0%)"></div>
+            </div>
+            <div class="stacked-legend">
+              <div class="legend-item"><span class="legend-chip" style="background:var(--laya)"></span> Both Correct: 81 (47.4%)</div>
+              <div class="legend-item"><span class="legend-chip" style="background:var(--jev)"></span> Jev Only: 55 (32.2%)</div>
+              <div class="legend-item"><span class="legend-chip" style="background:var(--kev)"></span> Laya Only: 11 (6.4%)</div>
+              <div class="legend-item"><span class="legend-chip" style="background:var(--paper-dark)"></span> Both Wrong: 24 (14.0%)</div>
+            </div>
+          </div>
+
+          <p style="font-size: 0.85rem; color: var(--muted); margin-top: 10px;">
+            A label-informed oracle selecting between these exact outputs reaches 147/171, or 85.96%. That is a ceiling for selecting between these two frozen predictions, <strong>not an achievable ensemble result</strong>. Blind averaging can lose Jev's 55 unique wins.
+          </p>
+        </div>
+      </div>
+
+      <!-- Critical Limits & Caveats Callout -->
+      <div class="callout warning">
+        <div class="callout-icon">⚠️</div>
+        <div class="callout-content">
+          <h4>Limits that affect the next experiment</h4>
+          <p>
+            <strong>Eval set reuse:</strong> The eval set has already been inspected repeatedly. Preserve it as historical regression evidence; obtain a new independent confirmation set before claiming that changes discovered through this analysis generalize. The best earlier v1 Jev run was 80.12% accuracy / 0.7241 macro F1, while the current v2 run is 79.53% / 0.7183. Do not claim that v2 established a gain, or select historical runs opportunistically.
+          </p>
+          <p style="margin-top: 8px;">
+            <strong>Reference annotations:</strong> These are agreement scores with the supplied annotations. Independent human adjudication is not established. Embedded source audits report five exact duplicate groups, no conflicting labels, and no cross-dev/eval duplicate groups; this review checked that the selected eval texts are unique, but did not redownload and reconstruct the full source audit or investigate fuzzy/author/product overlap.
+          </p>
+          <p style="margin-top: 8px;">
+            <strong>Latency &amp; caching:</strong> All 171 records in the selected Jev run are cached; Laya's selected run records fresh calls. Jev's cached wall time is not a current speed measurement. Existing latency also mixes different infrastructure, network, queueing, and possibly retries. See the <a href="docs/evaluation.md">evaluation protocol</a>.
+          </p>
+        </div>
+      </div>
+
+      <p style="font-size: 0.85rem; color: var(--muted);">
+        Sources: <a href="src/darija_eval/metrics.py">metric computation</a>, <a href="src/darija_eval/artifacts.py">validated reanalysis</a>, <a href="src/darija_eval/compare.py">paired comparison</a>, and the prediction records linked above.
+      </p>
+    </section>
+
+    <!-- SECTION 2: What to take from each repository -->
+    <section class="section wrap" id="repositories">
+      <div class="section-header">
+        <div class="section-num"><span>02</span> Architectural Review</div>
+        <h2 class="section-title">What to take from each repository</h2>
+        <p class="section-desc">
+          Implementation-level review of pinned source revisions to identify reusable mechanisms versus unverified claims.
+        </p>
+      </div>
+
+      <!-- Source Revisions Table -->
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Repository</th>
+              <th>Pinned source revision</th>
+              <th>Important distinction</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <a href="https://github.com/jaredpalmer/kev/tree/90990a5fac2995b9faa3190f7d437e84f2067768" target="_blank" rel="noopener"><strong>KEV</strong></a>
+              </td>
+              <td><code>90990a5fac2995b9faa3190f7d437e84f2067768</code></td>
+              <td>A separate Qwen-based decision model; not hosted Jev or a Laya checkpoint.</td>
+            </tr>
+            <tr>
+              <td>
+                <a href="https://github.com/NandhaKishorM/laya/tree/573e5b62696ba441230cd6be71d593331b5d23af" target="_blank" rel="noopener"><strong>Laya</strong></a>
+              </td>
+              <td><code>573e5b62696ba441230cd6be71d593331b5d23af</code></td>
+              <td>Source declares 0.3.5; the current deployment pins 0.3.4. Main-branch features are not verified deployed behavior.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Side-by-Side Deep Dive -->
+      <div class="arch-grid">
+        <!-- KEV Card -->
+        <div class="arch-card kev">
+          <div class="arch-header">
+            <h3>KEV: the stronger starting point for a trainable challenger</h3>
+            <span class="pill">Qwen Backbone + LoRA + Pointer Head</span>
+          </div>
+          <p>
+            KEV combines a frozen Qwen backbone with a trainable LoRA adapter and pointer head that scores the available options. Its current family includes Qwen3.5-based 0.8B, 4B, and 9B models. The useful feature here is a real custom-data training path: <code>--init_from</code> restores both the existing adapter and decision head, with compatibility checks, so domain adaptation does not start from a randomly initialized decision head. Sources: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/model.py">model implementation</a>, <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/checkpoint.py">checkpoint loading</a>.
+          </p>
+          <div class="rec-highlight" style="margin:0;">
+            Its TypeSafe-shaped HTTP API makes it a plausible third backend behind this project's existing <code>Prediction</code> contract. Start with 4B as an engineering choice; it is not a demonstrated Darija winner. Upstream transfer scores use different tasks and cannot be compared numerically with our 171 reviews. Sources: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/serve.py">server</a>, <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/docs/model-cards/kev-4b.md">4B model card</a>.
+          </div>
+          <h4>Three training details matter:</h4>
+          <ul>
+            <li>
+              <strong>Shuffle label positions without changing their meaning.</strong> KEV supports this, but also defaults to adding distractors/none-of-the-above variants. Disable those option-set changes for the initial strict three-class sentiment experiment.
+            </li>
+            <li>
+              <strong>Borrow its contrastive-data method:</strong> one meaningful change flips the answer, irrelevant changes preserve it, and related examples stay in the same split. For Darija, use fluent reviewers to validate negation and sentiment changes; the upstream generators concern explicit policies whose labels can be computed, which is not generally true of natural sentiment.
+            </li>
+            <li>
+              <strong>Use simple supervised cross-entropy as the first control.</strong> KEV's latest completed calibration-loss screen did not promote any tested continuation, smoothing, Brier, or focal-loss variant. That is evidence for disciplined ablations, not for copying a complicated loss recipe.
+            </li>
+          </ul>
+          <p style="font-size:0.8rem; color:var(--muted); margin-top:auto;">
+            Sources: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/train.py">training code</a>, <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/contrastive.py">contrastive generators</a>, <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/runs/calibration-screen-review-v1/report.json">completed loss-screen evidence</a>.
+          </p>
+        </div>
+
+        <!-- Laya Card -->
+        <div class="arch-card laya">
+          <div class="arch-header">
+            <h3>Laya: adapt the multilingual model, but extract ideas selectively</h3>
+            <span class="pill">Bidirectional Encoder + Action Head</span>
+          </div>
+          <p>
+            Laya uses a bidirectional encoder, option-scoring layers, and an action head. Each question becomes a complete sequence containing instructions, options, and state. Multiple questions are batched, but the state is repeated: six question variants do not have the compute cost of one. Token budgets also constrain instructions, option descriptions, and review text. Instrument actual truncation before adding long examples. Source: <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/common.py">sequence construction and model</a>.
+          </p>
+          <div class="callout warning" style="margin: 0; padding: 14px 16px;">
+            <div class="callout-icon">🚨</div>
+            <div class="callout-content">
+              <strong style="color:var(--amber);">Keep the explicit multilingual checkpoint.</strong>
+              The automatic router's language heuristic returned <code>is_english=True</code> when executed on <code>had lproduit khayb bzaf</code>, <code>zwin bzzaf 3jbni</code>, and mixed-script <code>had lproduit khayb بزاف</code>. Adopting its default router would send these examples to the English checkpoint. This is a reproduced routing finding, not a model-accuracy experiment. Sources: <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/lang.py">language detector</a>, <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/router.py">router</a>.
+            </div>
+          </div>
+          <h4>Fine-tuning notebook &amp; methodology:</h4>
+          <ul>
+            <li>
+              The supplied fine-tuning notebook is an English typed-decisions adaptation, not a multilingual Darija recipe. Its actual objective combines RL and cross-entropy; its calibration examples are taken from the training pool; the shown adaptation assigns zero weight to the action-head loss. Do not run it unchanged or treat its action probability as a validated abstention mechanism. A multilingual supervised training path with separate validation/calibration needs implementation. Source: <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb">fine-tuning notebook</a>.
+            </li>
+            <li>
+              Laya's research documentation explicitly says Jev was not run in that repository; its cited Jev numbers come from third parties. Our matched local results are the relevant comparison. Shortlisting is also irrelevant for three exhaustive sentiment classes. Sources: <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/research/README.md">research methodology</a>, <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/shortlist.py">shortlisting implementation</a>.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Make the next experiments trustworthy first -->
+    <section class="section wrap" id="trustworthy">
+      <div class="section-header">
+        <div class="section-num"><span>03</span> Experiment Integrity</div>
+        <h2 class="section-title">Make the next experiments trustworthy first</h2>
+        <p class="section-desc">
+          The existing pipeline already validates predictions, resumes through caches, records manifests, computes uncertainty, and emits standalone HTML. Extend these components rather than replace them.
+        </p>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 25%">Required change</th>
+              <th style="width: 35%">Why it matters</th>
+              <th style="width: 40%">Verification before experiments</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Represent criteria order explicitly in experiment identity.</strong></td>
+              <td>Both backend schema fingerprints currently use <code>json.dumps(..., sort_keys=True)</code>. Option permutations therefore have the same hash even though inference can depend on order.</td>
+              <td>Two permutations get different cache identities; repeating the same permutation hits its own cache. Probability vectors map back to semantic labels.</td>
+            </tr>
+            <tr>
+              <td><strong>Add an experiment/configuration fingerprint.</strong></td>
+              <td>Cache identity must cover checkpoint revision, preprocessing, examples/retrieval corpus, option order, calibration and decision policy. Otherwise a modified system can reuse baseline outputs.</td>
+              <td>Change one behavior-affecting field at a time and verify invalidation; preserve old records. Separate raw-inference identity from derived calibration identity where practical.</td>
+            </tr>
+            <tr>
+              <td><strong>Make Laya schema selection explicit and verifiable.</strong></td>
+              <td>Its endpoint currently accepts only <code>review</code> and uses server-side schema constants. It does not emit a schema hash; the client tolerates that missing field. Client-side prompt changes alone do not prove remote prompt changes.</td>
+              <td>A versioned candidate endpoint returns the actual loaded schema/configuration hash; mismatches fail before scoring. Keep historical compatibility separate.</td>
+            </tr>
+            <tr>
+              <td><strong>Add a distinct KEV backend and model-agnostic comparison.</strong></td>
+              <td>CLI selection and comparison currently require Jev/Laya. Labeling KEV as Jev would corrupt provenance.</td>
+              <td>All backend pairs validate matching examples; old reports remain readable; record base, adapter, code revision, and serving configuration.</td>
+            </tr>
+            <tr>
+              <td><strong>Log token admission/truncation and full-precision probabilities/logits where available.</strong></td>
+              <td>A character limit is not a tokenizer limit, and rounded probabilities constrain calibration.</td>
+              <td>Long Arabic/Arabizi inputs expose token counts and truncation; no silent removal of difficult rows. Preserve supplied probabilities when logits are unavailable.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div class="callout-content">
+          <h4>Serving Environment &amp; Codebase References</h4>
+          <p>
+            Relevant local files: <a href="src/darija_eval/schema.py">schema</a>, <a href="src/darija_eval/cache.py">cache</a>, <a href="src/darija_eval/backends/jev.py">Jev backend</a>, <a href="src/darija_eval/backends/laya.py">Laya backend</a>, <a href="src/darija_eval/modal_laya.py">Laya endpoint</a>, <a href="src/darija_eval/cli.py">CLI</a>, <a href="src/darija_eval/compare.py">comparison</a>.
+          </p>
+          <p style="margin-top: 8px;">
+            Use a separate KEV serving environment: its pinned project requires Python 3.12+ and a newer Transformers range than the existing Laya image. The HTTP boundary avoids forcing incompatible serving dependencies into one runtime. Source: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/pyproject.toml">KEV dependencies</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Prioritized experiments -->
+    <section class="section wrap" id="experiments">
+      <div class="section-header">
+        <div class="section-num"><span>04</span> Prioritized Proposals</div>
+        <h2 class="section-title">Prioritized experiments</h2>
+        <p class="section-desc">
+          Five prioritized tracks, ranked from foundational data supervision to cheap inference ablations, model adaptation, and calibration.
+        </p>
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="filter-bar" role="tablist" aria-label="Filter experiment priorities">
+        <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true">
+          All Experiments <span class="badge-count">5</span>
+        </button>
+        <button class="filter-btn" data-filter="p1" role="tab" aria-selected="false">
+          P1: Supervision <span class="badge-count">Data</span>
+        </button>
+        <button class="filter-btn" data-filter="p2" role="tab" aria-selected="false">
+          P2: Inference Variants <span class="badge-count">Cheap</span>
+        </button>
+        <button class="filter-btn" data-filter="p3" role="tab" aria-selected="false">
+          P3: KEV Warm-Start <span class="badge-count">4B Model</span>
+        </button>
+        <button class="filter-btn" data-filter="p4" role="tab" aria-selected="false">
+          P4: Laya Adaptation <span class="badge-count">Encoder</span>
+        </button>
+        <button class="filter-btn" data-filter="p5" role="tab" aria-selected="false">
+          P5: Calibration &amp; Fallback <span class="badge-count">Serving</span>
+        </button>
+      </div>
+
+      <div class="exp-list">
+        <!-- P1 Card -->
+        <article class="exp-card" data-priority="p1">
+          <div class="exp-card-header">
+            <h3 class="exp-title">P1 — Review the task and build targeted supervision</h3>
+            <span class="exp-badge p1">P1 · Foundational</span>
+          </div>
+          <div class="exp-content">
+            <p>
+              Use the existing <a href="docs/evaluation.md">blind review protocol</a>: two fluent Darija annotators, hidden model outputs and original labels, then adjudication. Include random examples as well as dev error categories. Clarify balanced opinion versus dominant sentiment, rhetorical questions, sarcasm, negation, and code-switching. Preserve original benchmark labels; do not relabel examples simply to agree with a model.
+            </p>
+            <p>
+              Build learning curves from increasing amounts of reviewed training data, with deliberate coverage of neutral and Arabizi examples. Add reviewer-checked original/transliterated pairs and minimal negation pairs. Keep every translation, paraphrase, and duplicate family within one partition. Never assign “neutral” merely because text is unfamiliar or evidence is missing.
+            </p>
+            <p>
+              For pilots, use grouped cross-validation within the existing 680-row development pool, reserving a separate calibration subset when fitting probabilities. Training labels, model-selection labels, and calibration labels must have distinct roles. Small strata mean unstable estimates; report fold variation rather than pretending all 680 rows can serve every role independently.
+            </p>
+            <p>
+              Collect an independent, blinded confirmation panel from the intended review domain. A planning target of 500–1,000 reviews, with adequate neutral and Arabizi support, is reasonable for budgeting—not a statistical power guarantee. Choose final sample size from the minimum useful improvement and expected paired discordance before evaluation. If deliberately oversampling rare groups, also report results under the intended population mixture.
+            </p>
+            <div class="callout warning" style="margin: 14px 0 0;">
+              <div class="callout-icon">📌</div>
+              <div class="callout-content">
+                <strong>AfriSenti External Data Caveat:</strong> The existing <a href="docs/dataset_survey.md">dataset survey</a> identifies AfriSenti Moroccan data as a candidate external resource. Use an independently versioned dataset adapter and verify its current data/label mapping before adoption. Tweets and product reviews are different domains: supplementary tweet training or evaluation must not silently replace the review objective. The <a href="https://github.com/afrisenti-semeval/afrisent-semeval-2023">original AfriSenti repository</a> is the primary starting point.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- P2 Card -->
+        <article class="exp-card" data-priority="p2">
+          <div class="exp-card-header">
+            <h3 class="exp-title">P2 — Run cheap, bounded inference experiments</h3>
+            <span class="exp-badge p2">P2 · Zero Training</span>
+          </div>
+          <div class="exp-content">
+            <p>
+              Run each variant separately against the same development baseline before combining winners:
+            </p>
+
+            <div class="table-container" style="margin-top:14px;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Experiment</th>
+                    <th>Hypothesis</th>
+                    <th>Measure and tradeoff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Short, reviewer-approved criteria clarification</strong></td>
+                    <td>Some errors reflect disagreement about neutral/mixed sentiment.</td>
+                    <td>Macro F1 and both neutral precision/recall; no change to label ontology.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Six permutations of the three options</strong></td>
+                    <td>Position sensitivity contributes avoidable errors.</td>
+                    <td>Flip rate, mapped probability variation, and F1 of the six-way mean; up to six sequence evaluations, not free accuracy.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Original text plus a reviewed normalization/transliteration</strong></td>
+                    <td>A second rendering helps interpret Arabizi.</td>
+                    <td>Paired original/transformed performance and errors introduced by the transform; preserve negation, emoji, digits and the original text.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Small training-only exemplar context</strong></td>
+                    <td>Relevant examples clarify the task or language.</td>
+                    <td>Start with a small fixed example set, then retrieval only if justified; include prompt length, truncation, latency, and retrieval leakage checks.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p style="font-size:0.92rem;">
+              TypeSafe's Choice API supports meaningful option descriptions and structured instructions. That permits experiments; it does not establish that longer prompts improve this task. Source: <a href="https://docs.typesafe.ai/primitives/choice">Choice documentation</a>.
+            </p>
+            <p style="font-size:0.9rem; color:var(--muted); margin-top:8px;">
+              Do not pick the best option order using inspected eval labels. For ensembles, average distributions <strong>after aligning by class name</strong>, not option position. Record every component prediction and measured cost. Neither Jev nor Laya is a text-generation transliterator: any transformation is a separate, versioned component.
+            </p>
+          </div>
+        </article>
+
+        <!-- P3 Card -->
+        <article class="exp-card" data-priority="p3">
+          <div class="exp-card-header">
+            <h3 class="exp-title">P3 — Warm-start KEV on Darija</h3>
+            <span class="exp-badge p3">P3 · 4B Challenger</span>
+          </div>
+          <div class="exp-content">
+            <p>
+              Compare these arms under the same input schema and grouped development protocol:
+            </p>
+            <ol style="padding-left:22px; margin-bottom:14px; display:grid; gap:6px; font-size:0.95rem;">
+              <li>Unmodified, pinned KEV-4B.</li>
+              <li>The same checkpoint adapted on ordinary reviewed Darija training examples.</li>
+              <li>The same adaptation with targeted Arabizi/neutral/contrastive data, controlling training steps or reporting the changed budget.</li>
+            </ol>
+            <p>
+              Use KEV's native request-plus-label JSONL format, with the same <code>state={"review": ...}</code> and question structure as serving. Keep labels in training targets, never in inference state. Start with low-learning-rate LoRA/head continuation and ordinary cross-entropy; evaluate a small learning curve before a broad hyperparameter search.
+            </p>
+
+            <p class="exp-subhead">Initial recipe settings to inspect and freeze:</p>
+            <ul style="padding-left:20px; display:grid; gap:6px; font-size:0.92rem; margin-bottom:14px;">
+              <li><code>--init_from</code>: an immutable released checkpoint snapshot, including adapter and head.</li>
+              <li><code>--base</code> and <code>--base_revision</code>: exactly those recorded by that checkpoint.</li>
+              <li>Initial <code>--lr 2e-5</code>, one or two epochs as bounded candidates, with batch/accumulation determined by a measured memory smoke test.</li>
+              <li><code>--p_none 0 --p_none_distract 0 --p_distract 0 --p_none_pair 0</code> for the first three-class control; retain label-order shuffling.</li>
+              <li>Record admitted/rejected training examples: upstream training filters by token budgets, so reconcile requested versus used records.</li>
+            </ul>
+
+            <div class="code-box">
+              <div class="code-box-header">
+                <span>Proposed Starting Recipe Flags (kev/train.py)</span>
+                <button class="copy-btn" data-copy="--init_from <released_checkpoint_snapshot> --base <recorded_base> --base_revision <rev> --lr 2e-5 --p_none 0 --p_none_distract 0 --p_distract 0 --p_none_pair 0">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <span>Copy Flags</span>
+                </button>
+              </div>
+              <pre><code>--init_from &lt;released_checkpoint_snapshot&gt; \  # immutable snapshot with adapter &amp; head
+--base &lt;recorded_base&gt; --base_revision &lt;rev&gt; \
+--lr 2e-5 \                                    # 1 or 2 epochs, batch via memory smoke test
+--p_none 0 --p_none_distract 0 \               # strict 3-class control, no distractors
+--p_distract 0 --p_none_pair 0 \               # retain label-order shuffling</code></pre>
+            </div>
+
+            <p style="font-size:0.88rem; color:var(--muted);">
+              These are proposed starting settings, not an executed recipe or proven optimum. The arguments and warm-start path exist in the pinned <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/kev/train.py">trainer</a>. If retaining general decision capability matters, compare a small replay mixture against task-only training on a separate retention set. Try 0.8B for cost or 9B for capacity only after the 4B experiments reveal a useful reason.
+            </p>
+          </div>
+        </article>
+
+        <!-- P4 Card -->
+        <article class="exp-card" data-priority="p4">
+          <div class="exp-card-header">
+            <h3 class="exp-title">P4 — Adapt multilingual Laya as a compact challenger</h3>
+            <span class="exp-badge p4">P4 · Compact Local</span>
+          </div>
+          <div class="exp-content">
+            <p>
+              Start from the currently pinned multilingual weights. Compare a frozen-encoder/scorer-training arm with a low-learning-rate encoder fine-tune under supervised cross-entropy. Use the same reviewed training examples and model-selection protocol as KEV. Implement a reproducible training/export path; the English notebook is not ready-made for this.
+            </p>
+            <p>
+              Prioritize neutral precision and Arabizi errors. If probabilities show a stable class bias, a small regularized class-bias adjustment is another development-only experiment. Unlike scalar temperature, class-specific biases can change the predicted label; consequently they are supervised decision tuning and can hurt other classes. Do not infer or set the correction from the current eval confusion matrix.
+            </p>
+            <p>
+              Only investigate the upstream RL objective after a supervised baseline succeeds. That keeps any improvement attributable to data, model adaptation, or objective choice rather than changing all three together.
+            </p>
+          </div>
+        </article>
+
+        <!-- P5 Card -->
+        <article class="exp-card" data-priority="p5">
+          <div class="exp-card-header">
+            <h3 class="exp-title">P5 — Calibrate, then consider selective fallback</h3>
+            <span class="exp-badge p5">P5 · Post-Processing</span>
+          </div>
+          <div class="exp-content">
+            <p>
+              Fit a positive scalar temperature on reserved calibration data after model selection. KEV persists a temperature; current Laya main also applies configured temperatures. For each row, scalar temperature preserves the argmax, so <strong>accuracy and macro F1 remain unchanged</strong>. It can improve NLL/Brier/reliability and can alter confidence ordering between rows; measure risk–coverage again. Sources: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/scripts/calibrate_checkpoint.py">KEV calibration</a>, <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/agent.py">Laya inference</a>.
+            </p>
+            <p>
+              Continue defining benchmark confidence as the predicted class's probability. Upstream SDK confidence fields have different formulas and are not interchangeable empirical correctness rates. Preserve raw probabilities and calibration parameters separately.
+            </p>
+            <p>
+              Verify that serving applies the fitted temperature unchanged. Inspected Laya main clamps temperatures to <code>[0.5, 5]</code>, while its research fitter searches <code>[0.2, 10]</code>; constrain the fit or explicitly reconcile the runtime behavior. This main-source finding is not a verification of deployed 0.3.4. Sources: <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/laya/common.py">runtime bounds</a>, <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/research/scripts/build_benchmark_nb.py">research fitter</a>.
+            </p>
+            <p>
+              If an adapted local model is useful, test a local-model → Jev fallback using held-out or out-of-fold development predictions. Report the final label on <strong>every</strong> review, fraction escalated, total requests, total cost, and p50/p95 latency. Derive routing thresholds without eval labels. A system that abstains must report accepted accuracy and coverage separately; dropping hard examples is not a higher full-set score. The current weaker Laya model is not automatically a useful fallback for Jev.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Promotion rules and implementation order -->
+    <section class="section wrap" id="roadmap">
+      <div class="section-header">
+        <div class="section-num"><span>05</span> Decision Rules</div>
+        <h2 class="section-title">Promotion rules and implementation order</h2>
+        <p class="section-desc">
+          Register evaluation gates before running candidates to prevent post-hoc rationalization.
+        </p>
+      </div>
+
+      <p style="margin-bottom: 20px; font-size: 0.95rem;">
+        Before running candidates, register a minimum useful gain and the cost constraint. A proposed starting gate is <strong>+0.03 absolute macro F1</strong> over the chosen baseline on development data, followed by independent confirmation whose paired 95% interval excludes zero. This is an engineering target, not a forecast. Freeze acceptable accuracy/class/style regressions in advance, inspect their uncertainty, and decline to claim subgroup safety when support is insufficient.
+      </p>
+
+      <p style="margin-bottom: 28px; font-size: 0.95rem;">
+        For a lower-cost replacement, use a separately registered quality non-inferiority margin and measured cost improvement; do not switch between quality and cost goals after seeing results. Repeat promising training candidates across seeds, but keep all variants and failed attempts visible. Perform one final confirmatory comparison after selecting the candidate; the old 171-row set remains a regression check.
+      </p>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 15%">Stage</th>
+              <th style="width: 45%">Concrete deliverable</th>
+              <th style="width: 40%">Exit check</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Experiment integrity</strong></td>
+              <td>Ordered schema/config identity, verifiable endpoint schema, KEV backend, generic comparison</td>
+              <td>Cache-isolation and provenance tests; old Jev/Laya comparisons still work.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Data and cheap probes</strong></td>
+              <td>Reviewed dev taxonomy, grouped partitions, bounded inference ablations</td>
+              <td>Validated predictions and standalone HTML for every run; no test-derived tuning.</td>
+            </tr>
+            <tr>
+              <td><strong>3. Trainable challenger</strong></td>
+              <td>KEV warm-start learning curve; then multilingual Laya CE baseline</td>
+              <td>Held-out dev improvement, recorded training admission, seed consistency and measured resource use.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Probability/serving work</strong></td>
+              <td>Independent calibration; optional fallback policy</td>
+              <td>Full-population quality plus calibration, coverage, cost, fresh latency and failure accounting.</td>
+            </tr>
+            <tr>
+              <td><strong>5. Confirmation</strong></td>
+              <td>Frozen candidate on new blinded review data</td>
+              <td>Paired comparison against a contemporaneous pinned baseline; publish negative results too.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warning">
+        <div class="callout-icon">🚫</div>
+        <div class="callout-content">
+          <h4>What NOT to do first</h4>
+          <p>
+            Do not begin with a larger GPU, option shortlisting, a generic agent workflow, automatic language routing, or a complicated RL loss. None addresses the measured quality gap as directly as supervised domain data.
+          </p>
+          <p style="font-size:0.85rem; color:var(--muted); margin-top:8px;">
+            Both repositories declare Apache-2.0 for code; preserve notices when reusing it and track model/data provenance independently of the code license. Sources: <a href="https://github.com/jaredpalmer/kev/blob/90990a5fac2995b9faa3190f7d437e84f2067768/LICENSE">KEV license</a>, <a href="https://github.com/NandhaKishorM/laya/blob/573e5b62696ba441230cd6be71d593331b5d23af/LICENSE">Laya license</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: Verification and reproducibility of this report -->
+    <section class="section wrap" id="reproducibility">
+      <div class="section-header">
+        <div class="section-num"><span>06</span> Reproduction</div>
+        <h2 class="section-title">Verification and reproducibility of this report</h2>
+        <p class="section-desc">
+          Offline reproduction commands, prediction SHA-256 checksums, and local repository provenance.
+        </p>
+      </div>
+
+      <p style="font-size: 0.95rem; margin-bottom: 16px;">
+        Local source reviewed at commit <code>18e191257f1e7297cea0bdf6340b6c7711accc94</code>. The evidence review used existing <code>artifacts.load_run</code> and <code>compare.compare_runs</code>; the latter produced a standalone comparison HTML in a temporary result directory. No new model inference, fine-tuning, endpoint deployment, or runtime upgrade was performed.
+      </p>
+
+      <p style="font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; color: var(--muted); margin-bottom: 8px;">
+        Prediction SHA-256 checksums:
+      </p>
+
+      <!-- Checksums -->
+      <div class="checksum-grid">
+        <div class="checksum-card">
+          <div class="checksum-title">
+            <span>Jev</span>
+            <button class="copy-btn" data-copy="da2e9c48913cf680484c9c57a75449c4ceeebbb5e33715370db8f6d6af18b765">Copy</button>
+          </div>
+          <div class="checksum-val">da2e9c48913cf680484c9c57a75449c4ceeebbb5e33715370db8f6d6af18b765</div>
+        </div>
+
+        <div class="checksum-card">
+          <div class="checksum-title">
+            <span>Laya</span>
+            <button class="copy-btn" data-copy="b3d7d731cbae423ffeb75e93d2b763bbb69f58324d63a6611c6ddb4fa6e41a25">Copy</button>
+          </div>
+          <div class="checksum-val">b3d7d731cbae423ffeb75e93d2b763bbb69f58324d63a6611c6ddb4fa6e41a25</div>
+        </div>
+
+        <div class="checksum-card">
+          <div class="checksum-title">
+            <span>Shared schema</span>
+            <button class="copy-btn" data-copy="2e37db5a57c6837d97d4a43e26c639ba4343a58655dbfc74f3c56bf6af9a27f5">Copy</button>
+          </div>
+          <div class="checksum-val">2e37db5a57c6837d97d4a43e26c639ba4343a58655dbfc74f3c56bf6af9a27f5</div>
+        </div>
+      </div>
+
+      <p style="font-size: 0.95rem; margin-top: 20px;">
+        To reproduce the paired baseline offline through the existing CLI, using the saved runs:
+      </p>
+
+      <!-- CLI Reproduction Box -->
+      <div class="code-box" style="margin-top: 12px;">
+        <div class="code-box-header">
+          <span>Bash CLI Reproduction</span>
+          <button class="copy-btn" id="copy-cli-main" data-copy="uv run darija-eval compare \
+  results/jev_eval_20260921_234315_802617 \
+  results/laya_eval_20260921_233519_938576">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Copy Command</span>
+          </button>
+        </div>
+        <pre><code>uv run darija-eval compare \
+  results/jev_eval_20260921_234315_802617 \
+  results/laya_eval_20260921_233519_938576</code></pre>
+      </div>
+
+      <p style="font-size: 0.92rem; color: var(--muted); margin-top: 14px;">
+        This recomputes from validated evidence and writes comparison JSON, paired predictions, and standalone HTML. It does not call either model. Every proposed future evaluation, calibration comparison, and model-comparison run must likewise include a readable standalone <code>report.html</code> in its result directory.
+      </p>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer wrap">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <h4>Task &amp; Scope</h4>
+        <ul>
+          <li>Zero-shot Moroccan Darija Sentiment (Positive, Neutral, Negative)</li>
+          <li>171 Frozen Evaluation Rows · 680 Dev Rows (seed 42)</li>
+          <li>Agreement evaluation; independent human adjudication pending</li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Model Candidates</h4>
+        <ul>
+          <li><strong>Jev 1.13.0:</strong> Remote API reference to beat (79.5% Acc / 0.718 F1)</li>
+          <li><strong>Laya 0.3.4:</strong> Multilingual compact encoder (53.8% Acc / 0.500 F1)</li>
+          <li><strong>KEV-4B:</strong> Trainable Qwen+LoRA pointer-head challenger</li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Project Standards</h4>
+        <ul>
+          <li>Standalone HTML reports required for all runs</li>
+          <li>Three-class macro F1 primary decision metric</li>
+          <li>Recomputed from validated predictions with Wilson &amp; bootstrap CIs</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <div>DARĪJA / SENTIMENT DECISION REPORT · 22 SEP 2026</div>
+      <div>STANDALONE EDITION · ZERO EXTERNAL ASSETS</div>
+    </div>
+  </footer>
+
+  <!-- Interactive JavaScript -->
+  <script>
+    (() => {
+      // 1. Reading Progress Bar
+      const progressBar = document.getElementById('reading-progress');
+      window.addEventListener('scroll', () => {
+        const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = totalHeight > 0 ? (window.scrollY / totalHeight) * 100 : 0;
+        if (progressBar) progressBar.style.width = `${progress}%`;
+      }, { passive: true });
+
+      // 2. Active Section Spy
+      const navLinks = document.querySelectorAll('.nav-links a');
+      const sections = document.querySelectorAll('section[id], div[id="recommendation"]');
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute('id');
+            navLinks.forEach(link => {
+              link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+            });
+          }
+        });
+      }, { rootMargin: '-20% 0px -70% 0px' });
+      sections.forEach(sec => observer.observe(sec));
+
+      // 3. Theme Toggle
+      const htmlEl = document.documentElement;
+      const themeToggle = document.getElementById('theme-toggle');
+      const savedTheme = localStorage.getItem('darija-report-theme');
+      if (savedTheme) {
+        htmlEl.setAttribute('data-theme', savedTheme);
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        htmlEl.setAttribute('data-theme', 'dark');
+      }
+
+      themeToggle?.addEventListener('click', () => {
+        const current = htmlEl.getAttribute('data-theme') || 'light';
+        const next = current === 'light' ? 'dark' : 'light';
+        htmlEl.setAttribute('data-theme', next);
+        localStorage.setItem('darija-report-theme', next);
+      });
+
+      // 4. Copy-to-Clipboard Handler
+      function setupCopy(button, textToCopy) {
+        if (!button) return;
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            const originalHTML = button.innerHTML;
+            button.classList.add('copied');
+            button.innerHTML = `<span>Copied!</span>`;
+            setTimeout(() => {
+              button.classList.remove('copied');
+              button.innerHTML = originalHTML;
+            }, 1800);
+          } catch (err) {
+            console.error('Clipboard copy failed', err);
+          }
+        });
+      }
+
+      document.querySelectorAll('.copy-btn[data-copy]').forEach(btn => {
+        setupCopy(btn, btn.getAttribute('data-copy'));
+      });
+
+      const copyNavBtn = document.getElementById('copy-cli-nav');
+      setupCopy(copyNavBtn, 'uv run darija-eval compare results/jev_eval_20260921_234315_802617 results/laya_eval_20260921_233519_938576');
+
+      // 5. Experiment Filter Tabs
+      const filterBtns = document.querySelectorAll('.filter-btn');
+      const expCards = document.querySelectorAll('.exp-card');
+
+      filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const filter = btn.getAttribute('data-filter');
+          filterBtns.forEach(b => {
+            b.classList.toggle('active', b === btn);
+            b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+          });
+
+          expCards.forEach(card => {
+            const cardPrio = card.getAttribute('data-priority');
+            const show = (filter === 'all' || filter === cardPrio);
+            card.style.display = show ? 'block' : 'none';
+          });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import re
+from collections import Counter
 from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
@@ -15,6 +17,52 @@ from .dataset import DEFAULT_SPLIT_PATH
 from .statistics import paired_statistics
 
 
+_SERIES_KEY_PATTERN = re.compile(r"[^a-z0-9]+")
+
+
+def _model_basename(resolved: str) -> str:
+    first = resolved.split("+", 1)[0]
+    repo = first.split("@", 1)[0]
+    return repo.rsplit("/", 1)[-1] or resolved
+
+
+def _sanitize_series_key(value: str) -> str:
+    return _SERIES_KEY_PATTERN.sub("-", value.strip().lower()).strip("-") or "model"
+
+
+def _series_keys(runs: list[dict[str, Any]]) -> list[str]:
+    backends = [str(run["metrics"]["backend"]) for run in runs]
+    resolved = [str(run["metrics"]["resolved_models"][0]) for run in runs]
+    seen: set[tuple[str, str]] = set()
+    for backend, model in zip(backends, resolved):
+        if (backend, model) in seen:
+            raise ValueError(
+                "comparison requires runs from different backends or distinct resolved models "
+                f"(duplicate backend {backend!r} with resolved model {model!r})"
+            )
+        seen.add((backend, model))
+    counts = Counter(backends)
+    proposed = [
+        backend if counts[backend] == 1 else _sanitize_series_key(_model_basename(model))
+        for backend, model in zip(backends, resolved)
+    ]
+    duplicates = {key for key, count in Counter(proposed).items() if count > 1}
+    if duplicates:
+        fixed = []
+        for key, backend, model in zip(proposed, backends, resolved):
+            if key in duplicates and counts[backend] > 1:
+                digest = hashlib.sha256(model.encode("utf-8")).hexdigest()[:7]
+                fixed.append(f"{key}-{digest}")
+            else:
+                fixed.append(key)
+        proposed = fixed
+    if len(set(proposed)) != len(proposed):
+        for index, key in enumerate(proposed):
+            if proposed.count(key) > 1:
+                proposed[index] = f"{key}-{index}"
+    return proposed
+
+
 def compare_runs(
     first_run: Path,
     second_run: Path,
@@ -25,13 +73,11 @@ def compare_runs(
 ) -> Path:
     paths = [first_run, second_run] + ([third_run] if third_run is not None else [])
     runs = [_load_run(path) for path in paths]
-    by_backend = {run["metrics"]["backend"]: run for run in runs}
-    if len(by_backend) != len(runs):
-        raise ValueError("comparison requires runs from different backends")
-    names = sorted(by_backend)
+    by_series = dict(zip(_series_keys(runs), runs))
+    names = sorted(by_series)
     pairwise = {}
     for first, second in combinations(names, 2):
-        run_a, run_b = by_backend[first], by_backend[second]
+        run_a, run_b = by_series[first], by_series[second]
         for field in ("dataset_fingerprint", "split_ids_sha256"):
             value_a = run_a["metrics"].get("provenance", {}).get(field)
             value_b = run_b["metrics"].get("provenance", {}).get(field)
@@ -46,10 +92,10 @@ def compare_runs(
         "backends": names,
         "split": "eval",
         "paired_examples": len(runs[0]["predictions"]),
-        "models": {name: _model_summary(by_backend[name]["metrics"]) for name in names},
+        "models": {name: _model_summary(by_series[name]["metrics"]) for name in names},
         "pairwise": pairwise,
     }
-    comparison["source_runs"] = {name: run["metrics"]["analysis_provenance"] for name, run in by_backend.items()}
+    comparison["source_runs"] = {name: run["metrics"]["analysis_provenance"] for name, run in by_series.items()}
     comparison["scope"] = {"status": "unverified", "note": "No frozen split file supplied; full-holdout membership unverified."}
     if split_path is not None:
         frozen = json.loads(split_path.read_text(encoding="utf-8"))
@@ -80,7 +126,7 @@ def compare_runs(
     (output / "comparison.json").write_text(
         json.dumps(comparison, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    indexed = {name: {row["id"]: row for row in by_backend[name]["predictions"]} for name in names}
+    indexed = {name: {row["id"]: row for row in by_series[name]["predictions"]} for name in names}
     paired_rows = []
     for identifier in sorted(indexed[names[0]]):
         reference = indexed[names[0]][identifier]
@@ -191,7 +237,7 @@ def _comparison_metrics(
         },
         "server_inference_ms": server,
         "note": (
-            f"{first.title()} is {_hosting(first)}; {second.title()} is {_hosting(second)}. "
+            f"{first.title()} is {_hosting(str(metrics_a.get('backend', first)))}; {second.title()} is {_hosting(str(metrics_b.get('backend', second)))}. "
             "Recorded round-trip latency includes different infrastructure, queueing and retries; cached rows retain original timings. It is not a controlled speed comparison."
         ),
     }
@@ -211,6 +257,7 @@ def _model_summary(metrics: dict) -> dict:
         None,
     )
     return {
+        "backend": metrics.get("backend"),
         "requested_model": metrics["requested_model"],
         "resolved_models": metrics["resolved_models"],
         "successful": metrics["successful"],
@@ -381,8 +428,10 @@ def _server_text(first: str, second: str, comparison: dict) -> str:
         text = "Unavailable" if not entry else f"{entry['p50']:.1f} ms p50 / {entry['p95']:.1f} ms p95"
         return f"Laya GPU inference: <b>{text}</b>"
     parts = []
+    models = comparison.get("models") or {}
     for name in (first, second):
-        if name == "jev":
+        source = models.get(name, {}).get("backend", name) if isinstance(models.get(name), dict) else name
+        if source == "jev":
             continue
         entry = server.get(name)
         if entry:

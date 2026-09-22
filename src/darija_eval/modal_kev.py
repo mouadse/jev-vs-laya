@@ -8,17 +8,17 @@ import modal
 from .schema import SCHEMA_VERSION, question_fingerprint, sentiment_question_dict
 
 APP_NAME = "kev-darija-sentiment"
-ADAPTER_REPO = "jaredpalmer/kev-4b"
-ADAPTER_REVISION = "485ace8703592fcf405488b262449990824cfed1"
-BASE_REPO = "Qwen/Qwen3.5-4B-Base"
-BASE_REVISION = "1001bb4d826a52d1f399e183466143f4da7b741b"
+ADAPTER_REPO = "jaredpalmer/kev-9b"
+ADAPTER_REVISION = "2629c06a5aeb0feb3b9783bafed17ed8f39ecf5c"
+BASE_REPO = "Qwen/Qwen3.5-9B-Base"
+BASE_REVISION = "68c46c4b3498877f3ef123c856ecfde50c39f404"
 KEV_CODE_REVISION = "90990a5fac2995b9faa3190f7d437e84f2067768"
 MODEL_IDENTIFIER = (
     f"{ADAPTER_REPO}@{ADAPTER_REVISION}"
     f"+{BASE_REPO}@{BASE_REVISION}"
     f"+kev@{KEV_CODE_REVISION}"
 )
-GPU = "L4"
+GPU = "L40S"
 QUESTION = sentiment_question_dict()
 SCHEMA_FINGERPRINT = question_fingerprint(QUESTION)
 
