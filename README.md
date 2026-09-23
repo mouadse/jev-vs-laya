@@ -35,6 +35,32 @@ These are agreement scores against the dataset's original annotations, **not** i
 
 The [frozen split](data/splits/seed_42.json), model and schema fingerprints, and saved manifests make comparisons traceable. `reanalyse` can rebuild metrics and HTML from prediction records **without calling a model again**. No model is trained or fine-tuned in this project.
 
+## djev game demos
+
+The pinned [djev-run](https://github.com/taeold/djev-run) image includes three browser games backed by `POST /v1/systemone`. **The Modal apps are currently stopped**; the links below point to the last deployed `mouadse` workspace and work only after that workspace [redeploys the fast L40S server](#run-it) and `/health` returns 200. The images are credited upstream examples, not screenshots of this Modal deployment.
+
+### Snake
+
+Choose a safe direction from the live board state. Press **Start** (or Space) to let djev play; **R** resets. [Open Snake after deployment](https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct/snake).
+
+<a href="https://github.com/taeold/djev-run"><img src="https://github.com/user-attachments/assets/2e9a5321-f8a9-4734-b6f2-4d6f47193390" width="640" alt="Upstream djev-run Snake demo with board, move probabilities, and live decision payload"></a>
+
+### Dino
+
+The T-Rex runs continuously while djev chooses **jump**, **duck**, or **run**. Press **Start Autopilot** (or Space); **R** resets and **H** toggles hitboxes. [Open Dino after deployment](https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct/dino).
+
+<a href="https://github.com/virajbhartiya/laya-vs-jev"><img src="https://raw.githubusercontent.com/virajbhartiya/laya-vs-jev/main/docs/assets/trex-arena-window.png" width="640" alt="Original Laya vs Jev two-player T-Rex arena with decisions and survival metrics"></a>
+
+*The Dino image shows the [original two-player T-Rex arena](https://github.com/virajbhartiya/laya-vs-jev), not djev-run's single-player page.*
+
+### Tetris
+
+djev selects a legal placement for each piece; the UI shows its probabilities and board-health reads. It starts in autopilot; switch to **Manual (Arrows + Space)** to play yourself. [Open Tetris after deployment](https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct/tetris).
+
+<a href="https://github.com/taeold/djev-run"><img src="https://github.com/user-attachments/assets/664f12cc-be17-4181-8a9a-5106e64c2f61" width="640" alt="Upstream djev-run Tetris demo with board, placement probabilities, and model telemetry"></a>
+
+The djev-run demos adapt [laya-coreml's Snake](https://github.com/mizorewww/laya-coreml), [laya-vs-jev's Dino](https://github.com/virajbhartiya/laya-vs-jev), and [jev-tetris](https://github.com/trungdq88/jev-tetris). These are gameplay showcases, not results from the Darija sentiment holdout above.
+
 ## Run it
 
 Install [uv](https://docs.astral.sh/uv/) and use Python 3.11 or newer. Copy [.env.example](.env.example) to `.env`, then set `TYPESAFE_API_KEY` for Jev. `HF_TOKEN` authenticates Hugging Face downloads; the Modal backends also need their own deployed endpoint URLs. `.env` is ignored by Git.
@@ -81,16 +107,16 @@ Set the deployed `predict` URLs in `.env`. The endpoint implementations are in [
 </details>
 
 <details>
-<summary><strong>Deploy the DiffusionGemma Jev-compatible server on Modal</strong></summary>
+<summary><strong>Deploy the djev game server on Modal</strong></summary>
 
-The [djev-run](https://github.com/taeold/djev-run) server runs on one L40S GPU, with its container image and NVIDIA checkpoint pinned in [modal_djev.py](src/darija_eval/modal_djev.py). It serves `/v1/systemone` and the upstream `/snake`, `/dino`, and `/tetris` demos, and scales to zero after 120 seconds idle. Create the `hf-secret` Modal secret with `HF_TOKEN`, then run:
+The [djev-run](https://github.com/taeold/djev-run) image and NVIDIA checkpoint are pinned in [modal_djev.py](src/darija_eval/modal_djev.py). The [fast Modal Server](src/darija_eval/modal_djev_fast.py) serves `/v1/systemone` and all three games on one L40S GPU, scaling to zero after 120 seconds idle. Create the `hf-secret` Modal secret with `HF_TOKEN`; download the weights once, then deploy:
 
 ```bash
 uv run modal run -m darija_eval.modal_djev::download_model
-uv run modal deploy -m darija_eval.modal_djev --strategy recreate
+uv run modal deploy -m darija_eval.modal_djev_fast --strategy recreate
 ```
 
-Set `DJEV_URL` to the deployed `serve` URL printed by Modal, then check the server and open a demo:
+Set `DJEV_URL` to the URL printed by `modal deploy`. Wait for `/health` to return 200 before opening a game; Modal returns HTTP 503 while the GPU starts:
 
 ```bash
 curl "$DJEV_URL/health"
@@ -99,17 +125,13 @@ xdg-open "$DJEV_URL/tetris"
 xdg-open "$DJEV_URL/dino"
 ```
 
-Snake runs the model after **Start** (or Space); **R** resets it. Tetris starts in model autopilot mode; choose **Manual (Arrows + Space)** to move and drop pieces yourself. Dino starts with **Start Autopilot** (or Space); **R** resets and **H** toggles hitboxes. The first move after idle may wait for the GPU to start.
+The original `@modal.web_server` variant is available with `uv run modal deploy -m darija_eval.modal_djev --strategy recreate`, but deploy only the variant you intend to use to avoid a second GPU service.
 
-For faster warm gameplay, deploy the separate [Modal Server](src/darija_eval/modal_djev_fast.py):
+The last fast endpoint was `https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct`, but **it is currently stopped** and must be redeployed before the game links above work. In a matched seven-state Snake probe, median warm request time from this machine fell from 709 ms on the original web-server endpoint to 228 ms on the Modal Server; one Server request took 946 ms. The first full startup took 111 seconds in the deployment check. Keeping one container warm avoids the cold start but incurs continuous L40S charges.
 
-```bash
-uv run modal deploy -m darija_eval.modal_djev_fast
-```
+The fast server config uses European compute and routing: a 100-pair synthetic Snake probe measured median/p95 latency of 182/188 ms versus 264/345 ms through the US deployment, with 100/100 matching move choices. The probe used seven board positions with varying seeds; it does not establish general gameplay quality. European compute pinning adds a 15% resource-price premium, and scarce regional L40S capacity can add several minutes to a cold start.
 
-Its current URL is `https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct`; open `/snake`, `/tetris`, or `/dino` there. In a matched seven-state Snake probe, median warm request time from this machine fell from 709 ms on the original endpoint to 228 ms on the Modal Server; one Server request took 946 ms. The separate deployment uses the same pinned image, model, GPU, and game inputs. Modal Servers return HTTP 503 while scaling up from zero, so wait for `/health` to return 200 and then refresh the demo page. The first full startup took 111 seconds in the deployment check. Keeping one container warm would avoid that delay but incur continuous L40S charges.
-
-The fast deployment now uses European compute and routing: a subsequent 100-pair synthetic Snake probe measured median/p95 latency of 182/188 ms versus 264/345 ms through the US deployment, with 100/100 matching move choices. The probe used seven board positions with varying seeds; it does not establish general gameplay quality. European compute pinning adds a 15% resource-price premium, and scarce regional L40S capacity can add several minutes to a cold start.
+The fast deployment sets `OMP_NUM_THREADS=1`. A 30-state warm Snake probe recorded locally at `results/djev_omp_probe_20260923/report.html` (ignored by Git) measured median request time of 183 ms before and 175–176 ms after; the p95 improvement was not consistent across candidate runs. Different containers and uncontrolled placement limit attribution, and this probe does not measure Dino or Tetris improvements.
 
 The API uses `model: "dgemma"` in `/v1/systemone` requests. Set `DJEV_ENDPOINT_URL` in `.env` to the deployed root URL and run `uv run darija-eval eval --backend djev` to evaluate it. The existing `--backend jev` calls the hosted TypeSafe service and remains a separate run.
 

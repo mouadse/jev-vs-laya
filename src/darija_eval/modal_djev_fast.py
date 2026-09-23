@@ -38,6 +38,7 @@ app = modal.App("djev-run-l40s-fast")
         "TEST_PAGE": "1",
         "TORCH_COMPILE_DISABLE": "1",
         "CUDA_MODULE_LOADING": "LAZY",
+        "OMP_NUM_THREADS": "1",
     },
 )
 class DjevFastServer:
