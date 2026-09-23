@@ -28,7 +28,7 @@ These are agreement scores against the dataset's original annotations, **not** i
 | Part | What it does |
 | :--- | :--- |
 | [Dataset and frozen split](src/darija_eval/dataset.py) | Validates all 851 source reviews, documents the four known `negative ` label aliases, rejects unknown labels, and preserves a seed-42 split of 680 development and 171 evaluation reviews. |
-| [Three backend adapters](src/darija_eval/backends) | Send **only the review text** to Jev, Kev, or Laya through one versioned sentiment schema; reference labels and metadata stay out of inference requests. |
+| [Backend adapters](src/darija_eval/backends) | Send **only the review text** to Jev, djev, Kev, or Laya through one versioned sentiment schema; reference labels and metadata stay out of inference requests. |
 | [Evaluation pipeline](src/darija_eval/evaluate.py) | Runs concurrent requests with retries, separates API failures from classification errors, records model identity, and resumes successful predictions from an experiment-aware cache. |
 | [Analysis and comparison](src/darija_eval/compare.py) | Checks that runs refer to the same examples and compatible schemas, then reports paired differences, class and writing-style results, uncertainty, and confidence calibration. |
 | [Standalone reports](src/darija_eval/report.py) | Generates readable HTML with charts, confusion matrices, and a searchable per-review error explorer alongside machine-readable JSON and JSONL. |
@@ -77,6 +77,41 @@ uv run modal deploy -m darija_eval.modal_kev --strategy recreate
 ```
 
 Set the deployed `predict` URLs in `.env`. The endpoint implementations are in [modal_laya.py](src/darija_eval/modal_laya.py) and [modal_kev.py](src/darija_eval/modal_kev.py).
+
+</details>
+
+<details>
+<summary><strong>Deploy the DiffusionGemma Jev-compatible server on Modal</strong></summary>
+
+The [djev-run](https://github.com/taeold/djev-run) server runs on one L40S GPU, with its container image and NVIDIA checkpoint pinned in [modal_djev.py](src/darija_eval/modal_djev.py). It serves `/v1/systemone` and the upstream `/snake`, `/dino`, and `/tetris` demos, and scales to zero after 120 seconds idle. Create the `hf-secret` Modal secret with `HF_TOKEN`, then run:
+
+```bash
+uv run modal run -m darija_eval.modal_djev::download_model
+uv run modal deploy -m darija_eval.modal_djev --strategy recreate
+```
+
+Set `DJEV_URL` to the deployed `serve` URL printed by Modal, then check the server and open a demo:
+
+```bash
+curl "$DJEV_URL/health"
+xdg-open "$DJEV_URL/snake"
+xdg-open "$DJEV_URL/tetris"
+xdg-open "$DJEV_URL/dino"
+```
+
+Snake runs the model after **Start** (or Space); **R** resets it. Tetris starts in model autopilot mode; choose **Manual (Arrows + Space)** to move and drop pieces yourself. Dino starts with **Start Autopilot** (or Space); **R** resets and **H** toggles hitboxes. The first move after idle may wait for the GPU to start.
+
+For faster warm gameplay, deploy the separate [Modal Server](src/darija_eval/modal_djev_fast.py):
+
+```bash
+uv run modal deploy -m darija_eval.modal_djev_fast
+```
+
+Its current URL is `https://mouadse--djev-run-l40s-fast-djevfastserver.eu-west.modal.direct`; open `/snake`, `/tetris`, or `/dino` there. In a matched seven-state Snake probe, median warm request time from this machine fell from 709 ms on the original endpoint to 228 ms on the Modal Server; one Server request took 946 ms. The separate deployment uses the same pinned image, model, GPU, and game inputs. Modal Servers return HTTP 503 while scaling up from zero, so wait for `/health` to return 200 and then refresh the demo page. The first full startup took 111 seconds in the deployment check. Keeping one container warm would avoid that delay but incur continuous L40S charges.
+
+The fast deployment now uses European compute and routing: a subsequent 100-pair synthetic Snake probe measured median/p95 latency of 182/188 ms versus 264/345 ms through the US deployment, with 100/100 matching move choices. The probe used seven board positions with varying seeds; it does not establish general gameplay quality. European compute pinning adds a 15% resource-price premium, and scarce regional L40S capacity can add several minutes to a cold start.
+
+The API uses `model: "dgemma"` in `/v1/systemone` requests. Set `DJEV_ENDPOINT_URL` in `.env` to the deployed root URL and run `uv run darija-eval eval --backend djev` to evaluate it. The existing `--backend jev` calls the hosted TypeSafe service and remains a separate run.
 
 </details>
 

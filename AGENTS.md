@@ -67,3 +67,5 @@ Read this file before each task. Working code and verified results matter more t
   HTML report in its result directory; JSON and Markdown alone are insufficient.
 - Recompute analysis from validated prediction records; disclose sample scope,
   reference-label limits, uncertainty and cached timing before interpreting scores.
+- When deploying a model intended for evaluation, wire its CLI backend and endpoint
+  setting, then verify a real CLI run and its HTML report.

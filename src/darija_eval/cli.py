@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from .backends.base import SentimentBackend
 from .artifacts import reanalyse_run
+from .backends.djev import DjevBackend
 from .backends.jev import JevBackend
 from .backends.kev import KevBackend
 from .backends.laya import LayaBackend
@@ -84,7 +85,7 @@ def inspect(json_output: Annotated[Path | None, typer.Option("--json-output")] =
 
 @app.command()
 def demo(
-    backend_name: Annotated[str, typer.Option("--backend", help="jev, laya or kev")] = "jev",
+    backend_name: Annotated[str, typer.Option("--backend", help="jev, djev, laya or kev")] = "jev",
     max_retries: Annotated[int, typer.Option(min=0)] = 3,
 ) -> None:
     """Run ten deterministic examples from the dev split."""
@@ -121,7 +122,7 @@ def demo(
 
 @app.command("eval")
 def eval_command(
-    backend_name: Annotated[str, typer.Option("--backend", help="jev, laya or kev")] = "jev",
+    backend_name: Annotated[str, typer.Option("--backend", help="jev, djev, laya or kev")] = "jev",
     limit: Annotated[int | None, typer.Option(min=1)] = None,
     concurrency: Annotated[int, typer.Option(min=1)] = 5,
     max_retries: Annotated[int, typer.Option(min=0)] = 3,
@@ -132,7 +133,7 @@ def eval_command(
 
 @app.command("dev-eval")
 def dev_eval(
-    backend_name: Annotated[str, typer.Option("--backend", help="jev, laya or kev")] = "jev",
+    backend_name: Annotated[str, typer.Option("--backend", help="jev, djev, laya or kev")] = "jev",
     limit: Annotated[int | None, typer.Option(min=1)] = None,
     concurrency: Annotated[int, typer.Option(min=1)] = 5,
     max_retries: Annotated[int, typer.Option(min=0)] = 3,
@@ -156,7 +157,7 @@ def compare(
     second_run: Path = typer.Argument(..., exists=True, file_okay=False),
     third_run: Path | None = typer.Argument(None, exists=True, file_okay=False),
 ) -> None:
-    """Compare two or three eval runs from distinct backends (jev, laya, kev) or distinct kev model variants (e.g. kev-4b vs kev-9b); identical backend-and-model pairs are rejected."""
+    """Compare two or three eval runs from distinct backends or distinct kev model variants (e.g. kev-4b vs kev-9b); identical backend-and-model pairs are rejected."""
     try:
         output = compare_runs(first_run, second_run, third_run=third_run)
     except ValueError as error:
@@ -168,11 +169,13 @@ def _backend(name: str, max_retries: int) -> SentimentBackend:
     normalized = name.strip().lower()
     if normalized == "jev":
         return JevBackend(max_retries=max_retries)
+    if normalized == "djev":
+        return DjevBackend(max_retries=max_retries)
     if normalized == "laya":
         return LayaBackend(max_retries=max_retries)
     if normalized == "kev":
         return KevBackend(max_retries=max_retries)
-    raise typer.BadParameter("backend must be 'jev', 'laya' or 'kev'", param_hint="--backend")
+    raise typer.BadParameter("backend must be 'jev', 'djev', 'laya' or 'kev'", param_hint="--backend")
 
 
 def _load_validated():
